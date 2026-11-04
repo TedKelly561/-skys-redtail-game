@@ -1,0 +1,6 @@
+{
+  "name": "Whiskers' River Journey - Redtail Catfish Adventure",
+  "description": "A cozy, kid-friendly 3D river adventure following a young redtail catfish swimming down lush Amazonian rivers, snacking on delicious larvae, collecting shiny stars, and discovering the magical Grand Lake.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,90 @@
+{
+  "entities": {
+    "UserProgress": {
+      "title": "UserProgress",
+      "description": "Tracks a player's points, shiny treasures, food eaten, and river progress.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "The authenticated user's UID.",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Display name of the river explorer.",
+          "maxLength": 100
+        },
+        "totalPoints": {
+          "type": "number",
+          "description": "Total points earned from treasures, stars, and foraging."
+        },
+        "starsCollected": {
+          "type": "number",
+          "description": "Total golden river stars collected."
+        },
+        "treasuresCollected": {
+          "type": "number",
+          "description": "Total shiny treasures collected."
+        },
+        "foodEaten": {
+          "type": "number",
+          "description": "Total larvae, minnows, and berries eaten."
+        },
+        "furthestDistance": {
+          "type": "number",
+          "description": "Furthest downstream distance reached in meters."
+        },
+        "highestChapter": {
+          "type": "number",
+          "description": "Highest river chapter unlocked (1 to 5)."
+        },
+        "smoothStones": {
+          "type": "number",
+          "description": "Count of polished smooth stones collected."
+        },
+        "lostTrinkets": {
+          "type": "number",
+          "description": "Count of lost river trinkets collected."
+        },
+        "shimmeringScales": {
+          "type": "number",
+          "description": "Count of shimmering fish scales collected."
+        },
+        "riverPearls": {
+          "type": "number",
+          "description": "Count of glowing river pearls collected."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last progress save."
+        }
+      },
+      "required": [
+        "uid",
+        "displayName",
+        "totalPoints",
+        "starsCollected",
+        "treasuresCollected",
+        "foodEaten",
+        "furthestDistance",
+        "highestChapter",
+        "smoothStones",
+        "lostTrinkets",
+        "shimmeringScales",
+        "riverPearls",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserProgress"
+      },
+      "description": "Stores private point tracking and treasure inventory for each authenticated player."
+    }
+  }
+}
