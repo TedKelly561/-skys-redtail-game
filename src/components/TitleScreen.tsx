@@ -1,8 +1,20 @@
 import React, { useState } from 'react';
-import { Play, Volume2, VolumeX, Compass, Sparkles, Fish, Trophy, Gem } from 'lucide-react';
+import {
+  Play,
+  Volume2,
+  VolumeX,
+  Compass,
+  Sparkles,
+  Fish,
+  Trophy,
+  Gem,
+  CalendarCheck,
+  Flame,
+} from 'lucide-react';
 import { User } from 'firebase/auth';
 import { CHAPTERS } from '../game/worldGen';
 import { PaceMode, TreasureCounts } from '../game/engine';
+import { DailyMissionsState } from '../game/dailyMissions';
 import { OfficialGoogleSignInButton } from './GmailPointTrackerModal';
 
 interface TitleScreenProps {
@@ -16,6 +28,8 @@ interface TitleScreenProps {
   isLoggingIn: boolean;
   onLogin: () => void;
   onOpenPointTracker: () => void;
+  dailyMissions: DailyMissionsState;
+  onOpenDailyMissions: () => void;
 }
 
 export const TitleScreen: React.FC<TitleScreenProps> = ({
@@ -29,13 +43,18 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   isLoggingIn,
   onLogin,
   onOpenPointTracker,
+  dailyMissions,
+  onOpenDailyMissions,
 }) => {
   const [selectedChapter, setSelectedChapter] = useState(0);
   const [showChapters, setShowChapters] = useState(false);
 
+  const completedMissionsCount = dailyMissions.missions.filter((m) => m.completed).length;
+  const totalMissionsCount = dailyMissions.missions.length;
+
   return (
     <div className="absolute inset-0 z-30 pointer-events-auto flex flex-col justify-between p-5 md:p-8 select-none">
-      {/* Top Bar with Gmail Login, Points, Treasures & Sound */}
+      {/* Top Bar with Gmail Login, Daily Missions, Points, Treasures & Sound */}
       <div className="flex flex-wrap items-center justify-between gap-3 w-full max-w-6xl mx-auto">
         <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900/75 border border-emerald-500/30 text-emerald-200 text-xs font-medium tracking-wide">
           <Fish className="w-4 h-4 text-orange-400" />
@@ -43,6 +62,27 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
+          {/* Daily Missions & Streak Button */}
+          <button
+            onClick={onOpenDailyMissions}
+            className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-950/85 hover:bg-emerald-900/85 border border-emerald-400/50 text-emerald-200 text-xs font-bold tabular-nums transition cursor-pointer shadow-lg"
+            title="View Today's Easy Daily Missions & Habit Streak"
+          >
+            <CalendarCheck className="w-3.5 h-3.5 text-emerald-400" />
+            <span>
+              Daily Missions ({completedMissionsCount}/{totalMissionsCount})
+            </span>
+            {dailyMissions.streakDays > 0 && (
+              <>
+                <span className="text-emerald-500/60">|</span>
+                <span className="flex items-center gap-1 text-orange-300">
+                  <Flame className="w-3.5 h-3.5 fill-orange-400 text-orange-400" />
+                  {dailyMissions.streakDays}d Streak
+                </span>
+              </>
+            )}
+          </button>
+
           {/* Points & Treasures Pill (opens Point Tracker Modal) */}
           <button
             onClick={onOpenPointTracker}
@@ -163,7 +203,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
         </p>
 
         {/* Action Buttons */}
-        <div className="flex flex-col sm:flex-row items-center gap-3 w-full justify-center">
+        <div className="flex flex-col sm:flex-row flex-wrap items-center gap-3 w-full justify-center">
           <button
             onClick={() => onStartGame(selectedChapter)}
             className="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 text-slate-950 font-bold text-base md:text-lg shadow-lg shadow-emerald-500/25 hover:from-emerald-400 hover:to-teal-400 transition active:scale-95 flex items-center justify-center gap-2 cursor-pointer border border-emerald-300/40"
@@ -178,6 +218,16 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           >
             <Compass className="w-4 h-4 text-teal-400" />
             <span>Choose Chapter ({CHAPTERS[selectedChapter].name})</span>
+          </button>
+
+          <button
+            onClick={onOpenDailyMissions}
+            className="w-full sm:w-auto px-5 py-3.5 rounded-2xl bg-amber-950/85 hover:bg-amber-900/90 text-amber-200 font-bold text-sm border border-amber-500/50 transition active:scale-95 flex items-center justify-center gap-2 cursor-pointer shadow-lg"
+          >
+            <CalendarCheck className="w-4 h-4 text-amber-400" />
+            <span>
+              Today's Missions ({completedMissionsCount}/{totalMissionsCount})
+            </span>
           </button>
         </div>
 

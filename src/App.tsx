@@ -7,11 +7,13 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { User } from 'firebase/auth';
 import { GameEngine, GameState, PaceMode, TreasureCounts } from './game/engine';
 import { CHAPTERS, RiverChapterInfo } from './game/worldGen';
+import { DailyMissionsState, DailyMissionsManager } from './game/dailyMissions';
 import { TitleScreen } from './components/TitleScreen';
 import { GameHUD } from './components/GameHUD';
 import { PauseMenu } from './components/PauseMenu';
 import { GrandLakeVictory } from './components/GrandLakeVictory';
 import { GmailPointTrackerModal } from './components/GmailPointTrackerModal';
+import { DailyMissionsModal } from './components/DailyMissionsModal';
 import { sound } from './game/audio';
 import {
   initAuth,
@@ -38,9 +40,22 @@ export default function App() {
     riverPearls: 0,
     foodEaten: 0,
   });
+  const [dailyMissions, setDailyMissions] = useState<DailyMissionsState>(() =>
+    new DailyMissionsManager().getState()
+  );
+  const [isDailyMissionsOpen, setIsDailyMissionsOpen] = useState<boolean>(false);
   const [distance, setDistance] = useState<number>(0);
   const [totalDistance, setTotalDistance] = useState<number>(2650);
   const [progressPercent, setProgressPercent] = useState<number>(0);
+  const [streamDepth, setStreamDepth] = useState<{
+    playerDepthMeters: number;
+    bedDepthMeters: number;
+    featureLabel: string;
+  }>({
+    playerDepthMeters: 2.0,
+    bedDepthMeters: 3.9,
+    featureLabel: 'Flowing River Run',
+  });
   const [currentChapter, setCurrentChapter] = useState<RiverChapterInfo>(CHAPTERS[0]);
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
   const [tipMessage, setTipMessage] = useState<string | null>(null);
@@ -164,11 +179,13 @@ export default function App() {
     const engine = new GameEngine(mountRef.current, {
       onTummyChange: (val) => setTummy(val),
       onCountsChange: (newCounts) => setCounts(newCounts),
+      onDailyMissionsChange: (missionsState) => setDailyMissions(missionsState),
       onDistanceChange: (dist, tot, pct) => {
         setDistance(dist);
         setTotalDistance(tot);
         setProgressPercent(pct);
       },
+      onStreamDepthChange: (info) => setStreamDepth(info),
       onChapterChange: (chap) => setCurrentChapter(chap),
       onStateChange: (state) => setGameState(state),
       onTimeChange: (sec) => setElapsedSeconds(sec),
@@ -179,6 +196,7 @@ export default function App() {
     engineRef.current = engine;
     setPaceMode(engine.paceMode);
     setCounts({ ...engine.counts });
+    setDailyMissions(engine.dailyMissionsManager.getState());
 
     return () => {
       if (tipTimeoutRef.current) window.clearTimeout(tipTimeoutRef.current);
@@ -193,7 +211,12 @@ export default function App() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const engine = engineRef.current;
-      if (!engine || isPointTrackerOpen) return;
+      if (!engine || isPointTrackerOpen || isDailyMissionsOpen) {
+        if (e.code === 'Escape' && isDailyMissionsOpen) {
+          setIsDailyMissionsOpen(false);
+        }
+        return;
+      }
 
       if (e.code === 'ArrowLeft' || e.code === 'KeyA') {
         engine.inputs.steerLeft = true;
@@ -264,7 +287,7 @@ export default function App() {
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleWindowBlur);
     };
-  }, [gameState, isPointTrackerOpen]);
+  }, [gameState, isPointTrackerOpen, isDailyMissionsOpen]);
 
   const handleLogin = async () => {
     setIsLoggingIn(true);
@@ -359,6 +382,12 @@ export default function App() {
     }
   };
 
+  const handleRequestNextBonusSet = () => {
+    if (engineRef.current) {
+      engineRef.current.startNextDailyMissionBonusSet();
+    }
+  };
+
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-slate-950 font-sans select-none">
       {/* Isolated Three.js Canvas Container */}
@@ -380,6 +409,8 @@ export default function App() {
           isLoggingIn={isLoggingIn}
           onLogin={handleLogin}
           onOpenPointTracker={() => setIsPointTrackerOpen(true)}
+          dailyMissions={dailyMissions}
+          onOpenDailyMissions={() => setIsDailyMissionsOpen(true)}
         />
       )}
 
@@ -403,6 +434,9 @@ export default function App() {
           onVirtualSteer={handleVirtualSteer}
           user={user}
           onOpenPointTracker={() => setIsPointTrackerOpen(true)}
+          streamDepth={streamDepth}
+          dailyMissions={dailyMissions}
+          onOpenDailyMissions={() => setIsDailyMissionsOpen(true)}
         />
       )}
 
@@ -420,6 +454,8 @@ export default function App() {
           counts={counts}
           tummy={tummy}
           onOpenPointTracker={() => setIsPointTrackerOpen(true)}
+          dailyMissions={dailyMissions}
+          onOpenDailyMissions={() => setIsDailyMissionsOpen(true)}
         />
       )}
 
@@ -433,6 +469,16 @@ export default function App() {
           onOpenPointTracker={() => setIsPointTrackerOpen(true)}
         />
       )}
+
+      {/* Daily Missions & Habit Tracker Modal */}
+      <DailyMissionsModal
+        isOpen={isDailyMissionsOpen}
+        onClose={() => setIsDailyMissionsOpen(false)}
+        dailyMissions={dailyMissions}
+        onStartNextBonusSet={handleRequestNextBonusSet}
+        isTitleScreen={gameState === 'title'}
+        onStartSwimIfTitle={() => handleStartGame(0)}
+      />
 
       {/* Gmail Login & Cloud Point Tracker Modal */}
       <GmailPointTrackerModal

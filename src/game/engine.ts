@@ -1,9 +1,20 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { CatfishCharacter } from './catfishModel';
-import { RiverWorld, CHAPTERS, getRiverPath, RiverChapterInfo } from './worldGen';
+import {
+  RiverWorld,
+  CHAPTERS,
+  getRiverPath,
+  getRiverBedElevationAt,
+  RiverChapterInfo,
+} from './worldGen';
 import { ItemManager, RiverItem } from './items';
 import { sound } from './audio';
+import {
+  DailyMissionsManager,
+  DailyMissionsState,
+  DailyMissionMetric,
+} from './dailyMissions';
 
 const _vec3A = new THREE.Vector3();
 const _vec3B = new THREE.Vector3();
@@ -22,15 +33,23 @@ export interface TreasureCounts {
   foodEaten: number;
 }
 
+export interface StreamDepthInfo {
+  playerDepthMeters: number;
+  bedDepthMeters: number;
+  featureLabel: string;
+}
+
 export interface GameCallbacks {
   onTummyChange: (tummy: number) => void;
   onCountsChange: (counts: TreasureCounts) => void;
   onDistanceChange: (dist: number, totalDist: number, percent: number) => void;
+  onStreamDepthChange: (info: StreamDepthInfo) => void;
   onChapterChange: (chapter: RiverChapterInfo) => void;
   onStateChange: (state: GameState) => void;
   onTimeChange: (seconds: number) => void;
   onTipMessage: (message: string) => void;
   onTreasurePopup: (label: string, points: number, icon: string) => void;
+  onDailyMissionsChange: (missionsState: DailyMissionsState) => void;
 }
 
 export class GameEngine {
@@ -49,19 +68,18 @@ export class GameEngine {
   private player: CatfishCharacter;
   private riverWorld: RiverWorld;
   private itemManager: ItemManager;
+  public dailyMissionsManager: DailyMissionsManager;
 
-  // Player Navigation & Kinematics
   public playerDistance: number = 0;
   public totalJourneyDistance: number = 2650;
-  public playerLateral: number = 0; // + is Right, - is Left
-  public playerDepth: number = -2.0; // -0.4 (surface) to -3.8 (riverbed)
+  public playerLateral: number = 0;
+  public playerDepth: number = -2.0;
   private lateralVelocity: number = 0;
   private depthVelocity: number = 0;
   public forwardSpeed: number = 0;
   private currentBoostBonus: number = 0;
 
-  // Hunger & Treasure Counters
-  public tummy: number = 95; // 0 to 100
+  public tummy: number = 95;
   public counts: TreasureCounts = {
     totalPoints: 0,
     stars: 0,
@@ -80,7 +98,6 @@ export class GameEngine {
   public paceMode: PaceMode = 'epic';
   public elapsedSeconds: number = 0;
 
-  // Input States
   public inputs = {
     steerLeft: false,
     steerRight: false,
@@ -90,7 +107,6 @@ export class GameEngine {
     sonarPulse: false,
   };
 
-  // Virtual touch / pointer drag steering (-1 to +1, where +X is Right and +Y is Up)
   public touchSteerX: number = 0;
   public touchSteerY: number = 0;
   private isPointerDragging: boolean = false;
@@ -121,7 +137,6 @@ export class GameEngine {
       return /SwiftShader|llvmpipe|softpipe|Software|Basic Render/i.test(gpu);
     })();
 
-    // 1. Renderer Setup (Bright, crisp ACES tone mapping)
     this.renderer = new THREE.WebGLRenderer({
       antialias: !this.isSoftwareGl,
       powerPreference: 'high-performance',
@@ -129,24 +144,21 @@ export class GameEngine {
     });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.28; // Bright, cheerful sunlit exposure
+    this.renderer.toneMappingExposure = 1.28;
     this.renderer.setPixelRatio(this.isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = !this.isSoftwareGl;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.setSize(container.clientWidth, container.clientHeight);
     container.appendChild(this.renderer.domElement);
 
-    // 2. Scene & Bright Tropical Horizon Fog
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(CHAPTERS[0].fogColor);
     this.scene.fog = new THREE.FogExp2(CHAPTERS[0].fogColor, 0.013);
 
-    // 3. Studio Environment Reflection
     const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
     this.scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
     pmremGenerator.dispose();
 
-    // 4. Camera
     this.camera = new THREE.PerspectiveCamera(
       58,
       container.clientWidth / container.clientHeight,
@@ -154,7 +166,6 @@ export class GameEngine {
       260
     );
 
-    // 5. Bright Sunlit Lighting Rig
     this.hemiLight = new THREE.HemisphereLight(0xf0fcff, 0x5c8065, 1.25);
     this.scene.add(this.hemiLight);
 
@@ -172,16 +183,16 @@ export class GameEngine {
     this.dirLight.shadow.camera.bottom = -d;
     this.scene.add(this.dirLight);
 
-    // 6. Spawn Entities
     this.player = new CatfishCharacter();
     this.scene.add(this.player.group);
 
     this.riverWorld = new RiverWorld(this.scene);
     this.itemManager = new ItemManager(this.scene);
+    this.dailyMissionsManager = new DailyMissionsManager();
 
     this.loadLocalProgress();
+    this.callbacks.onDailyMissionsChange(this.dailyMissionsManager.getState());
 
-    // Pointer / touch drag steering on the canvas
     const dom = this.renderer.domElement;
     dom.addEventListener('pointerdown', this.onPointerDown);
     window.addEventListener('pointermove', this.onPointerMove);
@@ -315,7 +326,7 @@ export class GameEngine {
     this.updateChapter(true);
 
     this.callbacks.onTipMessage(
-      'Steer with WASD / Arrow Keys or drag on screen! Eat larvae & tiny fish to stay energized!'
+      'Explore shallow sunlit riffles, sandy point bars, and dive into deep 6m scour pools for treasures!'
     );
   }
 
@@ -350,8 +361,54 @@ export class GameEngine {
     this.player.pulseBarbelSonar();
     sound.playBarbelSense();
     this.callbacks.onTipMessage(
-      'Whiskers pulsed his 6 sensory barbels to detect nearby larvae and shiny treasures!'
+      'Whiskers pulsed his 6 sensory barbels to detect nearby larvae, silver minnows, and shiny treasures!'
     );
+    const res = this.dailyMissionsManager.recordEvent(['use_sonar'], 1);
+    this.handleDailyMissionResult(res);
+  }
+
+  public startNextDailyMissionBonusSet() {
+    const nextState = this.dailyMissionsManager.startNextBonusSet();
+    this.callbacks.onDailyMissionsChange(nextState);
+    this.callbacks.onTipMessage('Unlocked a fresh set of 3 Daily River Missions!');
+  }
+
+  private handleDailyMissionResult(res: {
+    completedMissions: { title: string; rewardPoints: number; icon: string }[];
+    allClearBonusAwarded: boolean;
+    totalBonusPointsEarned: number;
+    updatedState: DailyMissionsState;
+  } | null) {
+    if (!res) return;
+    this.callbacks.onDailyMissionsChange(res.updatedState);
+
+    if (res.totalBonusPointsEarned > 0) {
+      this.counts.totalPoints += res.totalBonusPointsEarned;
+      this.saveLocalProgress();
+      this.callbacks.onCountsChange({ ...this.counts });
+      sound.playMissionComplete();
+
+      if (res.allClearBonusAwarded) {
+        this.callbacks.onTreasurePopup(
+          `All 3 Daily Missions Complete!`,
+          res.totalBonusPointsEarned,
+          '🎁'
+        );
+        this.callbacks.onTipMessage(
+          `Amazing! You completed all 3 Daily Missions and earned the +100 pt All-Clear Bonus!`
+        );
+      } else if (res.completedMissions.length > 0) {
+        const m = res.completedMissions[0];
+        this.callbacks.onTreasurePopup(
+          `Daily Mission: ${m.title}!`,
+          m.rewardPoints,
+          m.icon
+        );
+        this.callbacks.onTipMessage(
+          `Daily Mission Complete: "${m.title}" (+${m.rewardPoints} Bonus Points)!`
+        );
+      }
+    }
   }
 
   private startLoop() {
@@ -389,11 +446,9 @@ export class GameEngine {
     const { position, tangent } = getRiverPath(dist);
 
     this.player.group.position.set(position.x, -1.7 + Math.sin(time * 0.8) * 0.22, position.z);
-    // Point local +Z (Snout) downstream along tangent!
     this.player.group.rotation.y = Math.atan2(tangent.x, tangent.z);
     this.player.update(dt, 1.4, Math.sin(time * 0.7) * 0.25, 0);
 
-    // Orbit camera around Whiskers so his head, barbels, white lateral stripe, and red tail shine
     const camAngle = time * 0.22;
     this.camera.position.set(
       position.x + Math.sin(camAngle) * 7.2,
@@ -408,14 +463,11 @@ export class GameEngine {
   private updateGame(dt: number) {
     const speedCfg = this.SPEEDS[this.paceMode];
 
-    // 1. Intuitive Player Steering:
-    // steerX: -1 is Left, +1 is Right
     let steerX = 0;
     if (this.inputs.steerLeft) steerX -= 1;
     if (this.inputs.steerRight) steerX += 1;
     if (Math.abs(this.touchSteerX) > 0.05) steerX = this.touchSteerX;
 
-    // diveY: +1 is Up (toward surface), -1 is Down (toward riverbed)
     let diveY = 0;
     if (this.inputs.riseUp) diveY += 1;
     if (this.inputs.diveDown) diveY -= 1;
@@ -429,8 +481,6 @@ export class GameEngine {
       this.inputs.sonarPulse = false;
     }
 
-    // 2. Hunger Mechanic:
-    // Slowly loses fullness over time AND expends energy by swimming/steering/boosting.
     const activeSwimEffort = Math.hypot(steerX, diveY) * 0.38;
     const boostEffort = isBoosting ? 0.75 : 0;
     const baseMetabolism = 0.32;
@@ -443,11 +493,10 @@ export class GameEngine {
       sound.playTummyRumble();
       this.lastTummyRumbleTime = this.elapsedSeconds;
       this.callbacks.onTipMessage(
-        "Gurgle! Whiskers' tummy is getting hungry from swimming! Eat nearby larvae or tiny fish!"
+        "Gurgle! Whiskers' tummy is getting hungry from swimming! Eat nearby larvae or silver minnows!"
       );
     }
 
-    // 3. Check Swirling River Currents & Sunken Logs
     this.currentBoostBonus = THREE.MathUtils.damp(this.currentBoostBonus, 0, 2.5, dt);
     let currentSwirlLateral = 0;
 
@@ -467,39 +516,62 @@ export class GameEngine {
       }
     }
 
-    // Target forward speed (slows down slightly if hunger bar is empty, never game over)
-    let targetSpeed = speedCfg.base;
+    const {
+      position: riverPos,
+      tangent,
+      normal,
+      width,
+      featureType,
+      featureLabel,
+    } = getRiverPath(this.playerDistance);
+
+    // Shallow riffles have a brisker natural flow (+0.45 m/s) compared to calm deep pools
+    const geomorphFlowDelta = featureType === 'riffle' ? 0.45 : featureType === 'pool' ? -0.15 : 0;
+
+    let targetSpeed = speedCfg.base + geomorphFlowDelta;
     if (this.tummy <= 0) {
       targetSpeed = speedCfg.hungry;
     } else if (isBoosting) {
-      targetSpeed = speedCfg.boost;
+      targetSpeed = speedCfg.boost + geomorphFlowDelta;
     } else if (this.tummy > 75) {
-      targetSpeed = speedCfg.max;
+      targetSpeed = speedCfg.max + geomorphFlowDelta;
     }
     targetSpeed += this.currentBoostBonus;
 
     this.forwardSpeed = THREE.MathUtils.damp(this.forwardSpeed, targetSpeed, 3.2, dt);
-    this.playerDistance += this.forwardSpeed * dt;
+    const distDelta = this.forwardSpeed * dt;
+    this.playerDistance += distDelta;
+
+    const swimMissionRes = this.dailyMissionsManager.recordSwimDistanceDelta(distDelta);
+    if (swimMissionRes) {
+      this.handleDailyMissionResult(swimMissionRes);
+    }
 
     if (this.playerDistance > this.furthestDistanceReached) {
       this.furthestDistanceReached = Math.round(this.playerDistance);
     }
 
-    // 4. Smooth Velocity-Damped Lateral & Depth Movement
-    const { position: riverPos, tangent, normal, width } = getRiverPath(this.playerDistance);
     const maxLateral = width / 2 - 2.2;
-
     const targetLatVel = steerX * 9.2 + currentSwirlLateral;
     this.lateralVelocity = THREE.MathUtils.damp(this.lateralVelocity, targetLatVel, 6.5, dt);
     this.playerLateral += this.lateralVelocity * dt;
     this.playerLateral = THREE.MathUtils.clamp(this.playerLateral, -maxLateral, maxLateral);
 
+    // Dynamic organic riverbed floor elevation at Whiskers' exact (distance, lateral) coordinate!
+    const localBedY = getRiverBedElevationAt(this.playerDistance, this.playerLateral);
+    const minAllowedDepth = Math.min(-0.85, localBedY + 0.45);
+
     const targetDepthVel = diveY * 5.2;
     this.depthVelocity = THREE.MathUtils.damp(this.depthVelocity, targetDepthVel, 6.5, dt);
     this.playerDepth += this.depthVelocity * dt;
-    this.playerDepth = THREE.MathUtils.clamp(this.playerDepth, -3.75, -0.38);
+    this.playerDepth = THREE.MathUtils.clamp(this.playerDepth, minAllowedDepth, -0.38);
 
-    // Gentle interaction with Sunken Logs (swim through hollow logs, or slide smoothly around solid branches)
+    this.callbacks.onStreamDepthChange({
+      playerDepthMeters: Number(Math.abs(this.playerDepth).toFixed(1)),
+      bedDepthMeters: Number(Math.abs(localBedY).toFixed(1)),
+      featureLabel,
+    });
+
     for (let i = 0; i < this.riverWorld.logObstacles.length; i++) {
       const log = this.riverWorld.logObstacles[i];
       if (Math.abs(this.playerDistance - log.distance) < log.length * 0.45) {
@@ -508,12 +580,10 @@ export class GameEngine {
         const distFromLogCenter = Math.hypot(dx, dy);
 
         if (log.isHollow) {
-          // If hitting the outer bark rim (between 1.35 and 1.95 radius), nudge smoothly inside or outside
           if (distFromLogCenter > 1.3 && distFromLogCenter < 1.95) {
             this.playerDepth = THREE.MathUtils.lerp(this.playerDepth, log.y, dt * 4);
           }
         } else {
-          // Solid sunken driftwood branch: gently glide over it if too close
           if (Math.abs(dx) < log.length * 0.45 && Math.abs(dy) < log.radius + 0.45) {
             this.playerDepth = Math.min(-0.45, log.y + log.radius + 0.48);
           }
@@ -525,22 +595,18 @@ export class GameEngine {
       sound.playWaterHop();
     }
 
-    // 5. Update Whiskers' 3D World Position & Forward Orientation
-    // Note: normal = (-tangent.z, 0, tangent.x) points to the RIGHT of downstream tangent!
     const worldX = riverPos.x + normal.x * this.playerLateral;
     const worldY = this.playerDepth;
     const worldZ = riverPos.z + normal.z * this.playerLateral;
 
     this.player.group.position.set(worldX, worldY, worldZ);
 
-    // Compute exact 3D velocity vector so Whiskers' Snout (+Z) ALWAYS faces forward in his swim direction!
     const velX = tangent.x * this.forwardSpeed + normal.x * this.lateralVelocity * 0.45;
     const velZ = tangent.z * this.forwardSpeed + normal.z * this.lateralVelocity * 0.45;
     this.player.group.rotation.y = Math.atan2(velX, velZ);
 
     this.player.update(dt, this.forwardSpeed, steerX, diveY);
 
-    // 6. Update Sunlight & Silky 3rd-Person Chase Camera
     this.dirLight.position.set(worldX + 25, 48, worldZ + 15);
     this.dirLight.target.position.set(worldX, worldY, worldZ);
     this.dirLight.target.updateMatrixWorld();
@@ -557,7 +623,6 @@ export class GameEngine {
     _vec3B.set(worldX + tangent.x * 4.8, worldY + 0.25, worldZ + tangent.z * 4.8);
     this.camera.lookAt(_vec3B);
 
-    // 7. Update River World & Check Plentiful Food + Shiny Treasure Collisions
     this.riverWorld.update(dt, this.playerDistance);
 
     this.itemManager.updateAndCheckCollisions(
@@ -602,10 +667,32 @@ export class GameEngine {
 
         this.saveLocalProgress();
         this.callbacks.onCountsChange({ ...this.counts });
+
+        // Track Daily Missions for collected item
+        const missionMetrics: DailyMissionMetric[] = [];
+        if (item.type === 'larva') {
+          missionMetrics.push('eat_larva', 'eat_any_food');
+        } else if (item.type === 'tiny_fish') {
+          missionMetrics.push('eat_minnow', 'eat_any_food');
+        } else if (item.type === 'berry') {
+          missionMetrics.push('eat_any_food');
+        } else if (item.type === 'star') {
+          missionMetrics.push('collect_star');
+        } else if (item.type === 'smooth_stone') {
+          missionMetrics.push('collect_any_treasure', 'collect_smooth_stone');
+        } else if (item.type === 'shimmering_scale' || item.type === 'pearl') {
+          missionMetrics.push('collect_any_treasure', 'collect_scale_or_pearl');
+        } else if (item.type === 'lost_trinket') {
+          missionMetrics.push('collect_any_treasure');
+        }
+
+        if (missionMetrics.length > 0) {
+          const missionRes = this.dailyMissionsManager.recordEvent(missionMetrics, 1);
+          this.handleDailyMissionResult(missionRes);
+        }
       }
     );
 
-    // 8. Distance & Chapter Progression
     const percent = Math.min(
       100,
       Math.round((this.playerDistance / this.totalJourneyDistance) * 100)

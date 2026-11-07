@@ -1,7 +1,18 @@
 import React from 'react';
-import { Play, RotateCcw, Volume2, VolumeX, Compass, Trophy, X } from 'lucide-react';
+import {
+  Play,
+  RotateCcw,
+  Volume2,
+  VolumeX,
+  Compass,
+  Trophy,
+  X,
+  CalendarCheck,
+  Flame,
+} from 'lucide-react';
 import { CHAPTERS } from '../game/worldGen';
 import { PaceMode, TreasureCounts } from '../game/engine';
+import { DailyMissionsState } from '../game/dailyMissions';
 
 interface PauseMenuProps {
   onResume: () => void;
@@ -15,6 +26,8 @@ interface PauseMenuProps {
   counts: TreasureCounts;
   tummy: number;
   onOpenPointTracker: () => void;
+  dailyMissions: DailyMissionsState;
+  onOpenDailyMissions: () => void;
 }
 
 export const PauseMenu: React.FC<PauseMenuProps> = ({
@@ -29,7 +42,12 @@ export const PauseMenu: React.FC<PauseMenuProps> = ({
   counts,
   tummy,
   onOpenPointTracker,
+  dailyMissions,
+  onOpenDailyMissions,
 }) => {
+  const completedMissionsCount = dailyMissions.missions.filter((m) => m.completed).length;
+  const totalMissionsCount = dailyMissions.missions.length;
+
   return (
     <div className="absolute inset-0 z-40 bg-slate-950/80 backdrop-blur-none flex items-center justify-center p-4 select-none">
       <div className="w-full max-w-lg bg-slate-900 border border-slate-700/80 rounded-3xl p-6 shadow-2xl flex flex-col text-slate-100">
@@ -78,14 +96,32 @@ export const PauseMenu: React.FC<PauseMenuProps> = ({
           </div>
         </div>
 
-        {/* Open Gmail Point Tracker Button */}
-        <button
-          onClick={onOpenPointTracker}
-          className="mb-4 py-2.5 px-4 rounded-2xl bg-amber-950/60 hover:bg-amber-900/70 border border-amber-500/40 text-amber-200 text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer"
-        >
-          <Trophy className="w-4 h-4 text-amber-400" />
-          <span>Open Gmail Point & Treasure Log ({counts.stars} ⭐ Stars)</span>
-        </button>
+        {/* Daily Missions & Gmail Point Tracker Row */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mb-4">
+          <button
+            onClick={onOpenDailyMissions}
+            className="py-2.5 px-3.5 rounded-2xl bg-emerald-950/60 hover:bg-emerald-900/70 border border-emerald-500/40 text-emerald-200 text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer"
+          >
+            <CalendarCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span className="truncate">
+              Daily Missions ({completedMissionsCount}/{totalMissionsCount})
+            </span>
+            {dailyMissions.streakDays > 0 && (
+              <span className="flex items-center gap-0.5 text-orange-300 shrink-0">
+                <Flame className="w-3.5 h-3.5 fill-orange-400 text-orange-400" />
+                {dailyMissions.streakDays}d
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={onOpenPointTracker}
+            className="py-2.5 px-3.5 rounded-2xl bg-amber-950/60 hover:bg-amber-900/70 border border-amber-500/40 text-amber-200 text-xs font-bold flex items-center justify-center gap-2 transition cursor-pointer"
+          >
+            <Trophy className="w-4 h-4 text-amber-400 shrink-0" />
+            <span className="truncate">Gmail Log ({counts.stars} ⭐ Stars)</span>
+          </button>
+        </div>
 
         {/* Journey Pacing Setting */}
         <div className="mb-4 p-3 rounded-2xl bg-slate-950/40 border border-slate-800">

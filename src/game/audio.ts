@@ -321,6 +321,37 @@ class SoundManager {
       osc.stop(now + item.t + item.d + 0.15);
     });
   }
+
+  /**
+   * Bright, uplifting fanfare when a Daily Mission is completed
+   */
+  public playMissionComplete() {
+    this.initCtx();
+    if (!this.ctx || !this.masterGain || this.isMuted) return;
+
+    const now = this.ctx.currentTime;
+    const notes = [
+      { f: 587.33, t: 0.0, d: 0.14 }, // D5
+      { f: 739.99, t: 0.11, d: 0.14 }, // F#5
+      { f: 880.0, t: 0.22, d: 0.16 }, // A5
+      { f: 1174.66, t: 0.35, d: 0.38 }, // D6
+    ];
+
+    notes.forEach((n) => {
+      if (!this.ctx || !this.masterGain) return;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(n.f, now + n.t);
+      gain.gain.setValueAtTime(0.28, now + n.t);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + n.t + n.d);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+      osc.start(now + n.t);
+      osc.stop(now + n.t + n.d + 0.05);
+    });
+  }
 }
 
 export const sound = new SoundManager();
