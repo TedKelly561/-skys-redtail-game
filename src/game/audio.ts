@@ -352,6 +352,53 @@ class SoundManager {
       osc.stop(now + n.t + n.d + 0.05);
     });
   }
+
+  /** Happy bouncing tune for the rainbow party. */
+  public playRainbowParty() {
+    this.initCtx();
+    if (!this.ctx || !this.masterGain || this.isMuted) return;
+    const now = this.ctx.currentTime;
+    // C major arpeggio up and down, then a little flourish.
+    const melody = [523.25, 659.25, 783.99, 1046.5, 783.99, 659.25, 783.99, 1046.5, 1318.51, 1046.5, 1318.51, 1567.98];
+    melody.forEach((f, i) => {
+      if (!this.ctx || !this.masterGain) return;
+      const t = now + i * 0.13;
+      const d = i === melody.length - 1 ? 0.6 : 0.16;
+      for (const [type, vol, mult] of [['triangle', 0.22, 1], ['sine', 0.12, 2]] as const) {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(f * mult, t);
+        gain.gain.setValueAtTime(vol, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + d);
+        osc.connect(gain);
+        gain.connect(this.masterGain);
+        osc.start(t);
+        osc.stop(t + d + 0.05);
+      }
+    });
+  }
+
+  /** A cartoon "chomp" when a bad guy grabs a snack. */
+  public playChomp() {
+    this.initCtx();
+    if (!this.ctx || !this.masterGain || this.isMuted) return;
+    const now = this.ctx.currentTime;
+    [0, 0.13].forEach((delay) => {
+      if (!this.ctx || !this.masterGain) return;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(320, now + delay);
+      osc.frequency.exponentialRampToValueAtTime(70, now + delay + 0.1);
+      gain.gain.setValueAtTime(0.16, now + delay);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.11);
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+      osc.start(now + delay);
+      osc.stop(now + delay + 0.13);
+    });
+  }
 }
 
 export const sound = new SoundManager();

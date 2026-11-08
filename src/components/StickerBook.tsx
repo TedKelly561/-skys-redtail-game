@@ -1,6 +1,6 @@
 import React from 'react';
 import { X } from 'lucide-react';
-import { FRIENDS, FriendKind } from '../game/friends';
+import { ANIMAL_FRIEND_COUNT, FRIENDS, FriendKind, countAnimalFriends } from '../game/friends';
 
 interface StickerBookProps {
   isOpen: boolean;
@@ -43,7 +43,7 @@ export const StickerBook: React.FC<StickerBookProps> = ({
         </div>
 
         <div className="text-center text-base font-bold text-amber-800 mb-3">
-          {met.size} of {FRIENDS.length} friends found
+          {countAnimalFriends(metFriends)} of {ANIMAL_FRIEND_COUNT} friends found
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -54,9 +54,11 @@ export const StickerBook: React.FC<StickerBookProps> = ({
               <div
                 key={f.kind}
                 className={`rounded-3xl p-2 flex flex-col items-center text-center border-4 ${
-                  isMet
-                    ? 'bg-white border-white shadow-lg -rotate-1'
-                    : 'bg-amber-200/50 border-dashed border-amber-400/70'
+                  f.special && isMet
+                    ? 'bg-gradient-to-br from-pink-100 via-yellow-50 to-sky-100 border-fuchsia-300 shadow-lg rotate-1'
+                    : isMet
+                      ? 'bg-white border-white shadow-lg -rotate-1'
+                      : 'bg-amber-200/50 border-dashed border-amber-400/70'
                 }`}
               >
                 <div className="w-full aspect-square flex items-center justify-center">
@@ -73,6 +75,11 @@ export const StickerBook: React.FC<StickerBookProps> = ({
                     <span className="text-5xl">{isMet ? '⭐' : '❓'}</span>
                   )}
                 </div>
+                {f.special && (
+                  <div className="text-[10px] font-black uppercase tracking-wide text-fuchsia-600">
+                    ✨ Special treasure
+                  </div>
+                )}
                 <div className={`text-sm font-black ${isMet ? 'text-amber-900' : 'text-amber-700/70'}`}>
                   {isMet ? f.name : '???'}
                 </div>

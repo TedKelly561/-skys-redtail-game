@@ -277,6 +277,16 @@ export class CatfishCharacter {
   private eyeMaterial: THREE.MeshPhysicalMaterial;
 
   private tailSwimPhase: number = 0;
+  private rainbowMode = false;
+  private rainbowTime = 0;
+  private rainbowMats: {
+    mat: THREE.MeshStandardMaterial;
+    color: THREE.Color;
+    emissive: THREE.Color;
+    emissiveIntensity: number;
+    map: THREE.Texture | null;
+    offset: number;
+  }[] = [];
   public swimSpeedMultiplier: number = 1.0;
   public isBoosting: boolean = false;
   public sonarPulseTimer: number = 0;
@@ -637,11 +647,68 @@ export class CatfishCharacter {
     this.update(0.016, 1.0, 0, 0);
   }
 
+  /**
+   * Rainbow Whiskers: tail and fins cycle through rainbow colors. Reads the materials from the
+   * meshes because they may have been swapped for cheaper ones after construction.
+   */
+  public setRainbow(on: boolean) {
+    if (on === this.rainbowMode) return;
+    this.rainbowMode = on;
+    if (on) {
+      const fins: THREE.Object3D[] = [
+        ...this.tailFin.children,
+        this.dorsalFin,
+        this.adiposeFin,
+        this.analFin,
+        this.leftPecFin,
+        this.rightPecFin,
+        this.leftPelvicFin,
+        this.rightPelvicFin,
+      ];
+      const seen = new Set<THREE.Material>();
+      this.rainbowMats = [];
+      fins.forEach((o) => {
+        const mat = (o as THREE.Mesh).material as THREE.MeshStandardMaterial;
+        if (!mat || !mat.color || seen.has(mat)) return;
+        seen.add(mat);
+        this.rainbowMats.push({
+          mat,
+          color: mat.color.clone(),
+          emissive: mat.emissive.clone(),
+          emissiveIntensity: mat.emissiveIntensity,
+          map: mat.map,
+          offset: this.rainbowMats.length * 0.25,
+        });
+        mat.map = null; // the reddish fin texture would tint every color red
+        mat.needsUpdate = true;
+      });
+    } else {
+      this.rainbowMats.forEach((r) => {
+        r.mat.color.copy(r.color);
+        r.mat.emissive.copy(r.emissive);
+        r.mat.emissiveIntensity = r.emissiveIntensity;
+        r.mat.map = r.map;
+        r.mat.needsUpdate = true;
+      });
+      this.rainbowMats = [];
+    }
+  }
+
   public pulseBarbelSonar() {
     this.sonarPulseTimer = 1.0;
   }
 
   public update(dt: number, speed: number, turning: number, diving: number) {
+    if (this.rainbowMode) {
+      this.rainbowTime += dt;
+      this.rainbowMats.forEach((r) => {
+        const hue = (this.rainbowTime * 0.3 + r.offset) % 1;
+        r.mat.color.setHSL(hue, 0.95, 0.55);
+        r.mat.emissive.setHSL(hue, 1, 0.3);
+        r.mat.emissiveIntensity = 0.7;
+      });
+    }
+
     const swimFreq = (3.4 + speed * 1.45) * (this.isBoosting ? 1.55 : 1.0);
     this.tailSwimPhase += dt * swimFreq;
 
