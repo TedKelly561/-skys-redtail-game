@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { RotateCcw } from 'lucide-react';
 import { TreasureCounts } from '../game/engine';
 
@@ -15,8 +15,16 @@ export const GrandLakeVictory: React.FC<GrandLakeVictoryProps> = ({
   onFreeSwim,
   onRestart,
 }) => {
+  // Let the celebration (family, rainbow, sparkles) play for a moment before the panel.
+  const [showPanel, setShowPanel] = useState(false);
+  useEffect(() => {
+    const t = window.setTimeout(() => setShowPanel(true), 2600);
+    return () => window.clearTimeout(t);
+  }, []);
+  if (!showPanel) return null;
+
   return (
-    <div className="absolute inset-0 z-40 bg-slate-950/60 flex items-center justify-center p-4 select-none">
+    <div className="absolute inset-0 z-40 bg-gradient-to-t from-slate-950/70 via-slate-950/10 to-transparent flex items-end sm:items-center justify-center p-4 pb-6 select-none">
       <div className="animate-pop w-full max-w-sm bg-gradient-to-b from-sky-900 to-slate-950 border-4 border-amber-300 rounded-[2rem] p-6 shadow-2xl flex flex-col items-center text-center text-white">
         <div className="text-6xl leading-none mb-2" aria-hidden="true">
           🏝️

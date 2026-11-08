@@ -22,7 +22,7 @@ const OPEN_DIST_ALONG = 4;
 const OPEN_DIST_ACROSS = 5;
 
 export class ChestManager {
-  private group = new THREE.Group();
+  public group = new THREE.Group();
   private chests: RiverChest[] = [];
   private disposables: { dispose: () => void }[] = [];
 

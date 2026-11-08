@@ -12,6 +12,11 @@ import { ItemManager, RiverItem } from './items';
 import { sound } from './audio';
 import { getGameTextures } from './textures';
 import { RingManager } from './rings';
+import { Forest } from './forest';
+import { Sky } from './sky';
+import { Sparkles } from './sparkles';
+import { WaterLook, addCaustics, createShorelineFoam, createWaterLook } from './water';
+import { AdaptiveResolution, DistanceStreamer, downgradePhysicalMaterials } from './perf';
 import { ChestManager } from './chests';
 import {
   FriendKind,
@@ -30,6 +35,18 @@ import {
 } from './dailyMissions';
 
 const _vec3A = new THREE.Vector3();
+
+const CONFETTI = ['#ff4d8d', '#ffd23f', '#4de3ff', '#7dff6b', '#c58bff', '#ffffff'];
+const SPARKLE_COLORS: Record<string, string[]> = {
+  larva: ['#ffd23f', '#ff9a5a', '#ffffff'],
+  tiny_fish: ['#bff6ff', '#ffffff', '#7fdcff'],
+  berry: ['#ff6fa8', '#ffd1e8', '#ffffff'],
+  star: ['#ffd23f', '#fff3b0', '#ffb000'],
+  smooth_stone: ['#4de3c8', '#ffffff', '#a8fff0'],
+  shimmering_scale: ['#e879f9', '#7fdcff', '#ffffff'],
+  lost_trinket: ['#ffcc33', '#4de3ff', '#ffffff'],
+  pearl: ['#ffffff', '#cfe9ff', '#ffd1e8'],
+};
 const _vec3B = new THREE.Vector3();
 
 export type GameState = 'title' | 'playing' | 'paused' | 'victory';
@@ -87,6 +104,15 @@ export class GameEngine {
   private itemManager: ItemManager;
   private ringManager: RingManager;
   private chestManager: ChestManager;
+  private forest: Forest;
+  private sky: Sky;
+  private sparkles: Sparkles;
+  private victoryTime: number = 0;
+  private victoryOrbit: number = 0;
+  private confettiTimer: number = 0;
+  private waterLook: WaterLook;
+  private streamer: DistanceStreamer;
+  private adaptiveResolution: AdaptiveResolution;
   public metFriends: Set<FriendKind> = loadMetFriends();
   private nearbyFriend: FriendKind | null = null;
   private friendScanTimer: number = 0;
@@ -179,7 +205,6 @@ export class GameEngine {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.15;
-    this.renderer.setPixelRatio(this.isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = !this.isSoftwareGl;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.setSize(container.clientWidth, container.clientHeight);
@@ -201,7 +226,7 @@ export class GameEngine {
       58,
       container.clientWidth / container.clientHeight,
       0.2,
-      260
+      210
     );
     this.fitCameraToAspect();
 
@@ -229,6 +254,39 @@ export class GameEngine {
     this.itemManager = new ItemManager(this.scene);
     this.ringManager = new RingManager(this.scene);
     this.chestManager = new ChestManager(this.scene);
+    this.forest = new Forest(this.scene);
+    this.sky = new Sky(this.scene, new THREE.Vector3(25, 48, 15));
+    this.sparkles = new Sparkles(this.scene);
+    this.sky.setColors(CHAPTERS[0].fogColor);
+
+    // Realistic water surface, caustic light on the riverbed and shoreline foam.
+    this.waterLook = createWaterLook();
+    const oldWaterMat = this.riverWorld.waterMesh.material as THREE.Material;
+    this.riverWorld.waterMesh.material = this.waterLook.material;
+    this.riverWorld.waterMesh.renderOrder = 1;
+    oldWaterMat.dispose();
+    addCaustics(this.riverWorld.riverBedMaterial, this.waterLook.uniforms.uTime);
+    this.waterLook.uniforms.uSkyHorizon.value.set(CHAPTERS[0].fogColor);
+    this.waterLook.uniforms.uSkyZenith.value.copy(this.sky.zenithColor);
+    this.scene.add(createShorelineFoam(this.waterLook.uniforms.uTime));
+
+    // Speed: cheaper materials everywhere except the water, and only the nearby river kept in
+    // the scene (radius in meters around Whiskers).
+    downgradePhysicalMaterials(this.scene, new Set([this.riverWorld.waterMesh.material as THREE.Material]));
+    this.streamer = new DistanceStreamer();
+    this.streamer.addChildrenOf(this.forest.group, 190);
+    this.streamer.addChildrenOf(this.riverWorld.lilyPadsGroup, 160);
+    this.streamer.addChildrenOf(this.riverWorld.hollowLogsGroup, 160);
+    this.streamer.addChildrenOf(this.riverWorld.currentsGroup, 140);
+    this.streamer.addChildrenOf(this.riverWorld.animalsGroup, 125);
+    this.streamer.addChildrenOf(this.riverWorld.grandLakeCelebrationGroup, 230);
+    this.streamer.addChildrenOf(this.itemManager.itemGroup, 85);
+    this.streamer.addChildrenOf(this.ringManager.group, 140);
+    this.streamer.addChildrenOf(this.chestManager.group, 170);
+    this.adaptiveResolution = new AdaptiveResolution(
+      this.renderer,
+      this.isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2)
+    );
 
     // Keep the riverbed crisp when viewed at a low angle.
     const maxAniso = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
@@ -375,6 +433,7 @@ export class GameEngine {
 
   public startGame(startAtChapterIndex: number = 0) {
     this.isFreeSwim = false;
+    this.riverWorld.setFamilyFollow(null);
     this.gameState = 'playing';
     this.callbacks.onStateChange('playing');
     sound.startRiverAmbience();
@@ -479,6 +538,7 @@ export class GameEngine {
     this.callbacks.onCountsChange({ ...this.counts });
     sound.playMissionComplete();
     this.callbacks.onTreasurePopup(`Hi, ${name}!`, 20, '👋');
+    this.sparkles.burst(this.player.group.position, ['#ff8fc0', '#ffffff', '#ffd1e8'], 26, 3);
     narrator.say(`Hi, ${name}! You made a new friend!`, true);
   }
 
@@ -539,8 +599,19 @@ export class GameEngine {
         this.updateGame(dt);
       } else if (this.gameState === 'title') {
         this.updateTitleMode(dt);
+      } else if (this.gameState === 'victory') {
+        this.updateVictoryMode(dt);
       }
 
+      this.forest.update(dt);
+      this.waterLook.uniforms.uTime.value += dt;
+      this.streamer.update(dt, this.player.group.position);
+      this.adaptiveResolution.update(rawDt);
+      this.sky.update(dt, this.camera.position);
+      this.sparkles.update(
+        dt,
+        this.renderer.domElement.height / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)))
+      );
       this.renderer.render(this.scene, this.camera);
 
       if (this.isSoftwareGl) {
@@ -553,6 +624,29 @@ export class GameEngine {
     };
 
     this.frameId = requestAnimationFrame(tick);
+  }
+
+  private updateVictoryMode(dt: number) {
+    this.victoryTime += dt;
+    this.victoryOrbit += dt * 0.3;
+    const p = this.player.group.position;
+    this.player.update(dt, 1.2, Math.sin(this.victoryTime * 0.8) * 0.2, 0);
+    const radius = 8;
+    _vec3A.set(
+      p.x + Math.sin(this.victoryOrbit) * radius,
+      Math.max(0.7, p.y + 3.0),
+      p.z + Math.cos(this.victoryOrbit) * radius
+    );
+    this.camera.position.lerp(_vec3A, Math.min(1, dt * 2));
+    this.camera.lookAt(p.x, p.y + 0.3, p.z);
+    this.riverWorld.update(dt, this.playerDistance);
+
+    this.confettiTimer -= dt;
+    if (this.confettiTimer <= 0) {
+      this.confettiTimer = 0.2;
+      _vec3B.set(p.x + (Math.random() - 0.5) * 7, p.y + 0.5 + Math.random() * 3, p.z + (Math.random() - 0.5) * 7);
+      this.sparkles.burst(_vec3B, CONFETTI, 9, 2.2, 0.6);
+    }
   }
 
   private updateTitleMode(dt: number) {
@@ -735,8 +829,8 @@ export class GameEngine {
     this.dirLight.target.position.set(worldX, worldY, worldZ);
     this.dirLight.target.updateMatrixWorld();
 
-    const camOffsetDist = 6.6;
-    const camHeight = 2.45;
+    const camOffsetDist = 6.2;
+    const camHeight = 3.1;
     _vec3A.set(
       worldX - tangent.x * camOffsetDist + normal.x * (steerX * 0.6),
       Math.max(0.1, worldY + camHeight),
@@ -789,6 +883,8 @@ export class GameEngine {
 
         this.saveLocalProgress();
         this.callbacks.onCountsChange({ ...this.counts });
+
+        this.sparkles.burst(item.group.position, SPARKLE_COLORS[item.type] ?? SPARKLE_COLORS.star);
 
         // Track Daily Missions for collected item
         const missionMetrics: DailyMissionMetric[] = [];
@@ -845,6 +941,12 @@ export class GameEngine {
       this.counts.stars += 1;
       this.counts.totalPoints += ev.trailComplete ? 30 : 5;
       sound.playCollectTreasure(ev.trailComplete ? 'shimmering_scale' : 'star');
+      this.sparkles.burst(
+        this.player.group.position,
+        ['#ffd23f', '#fff3b0', '#ffb000'],
+        ev.trailComplete ? 40 : 16,
+        ev.trailComplete ? 4 : 2.6
+      );
       if (ev.trailComplete) {
         this.callbacks.onTreasurePopup('Perfect!', 30, '🌈');
         narrator.say(cheer('Perfect! All the rings'), true);
@@ -865,6 +967,7 @@ export class GameEngine {
       sound.playCollectTreasure('lost_trinket');
       sound.playMilestone();
       this.callbacks.onTreasurePopup('Treasure chest!', 60, '🎁');
+      this.sparkles.burst(this.player.group.position, ['#ff4d8d', '#4de3ff', '#7dff6b', '#c58bff', '#ffd84d'], 50, 4.2, 1.5);
       narrator.say(cheer('You found a treasure chest'), true);
       this.handleDailyMissionResult(
         this.dailyMissionsManager.recordEvent(['collect_any_treasure'], 3)
@@ -917,9 +1020,14 @@ export class GameEngine {
       this.callbacks.onChapterChange(chapter);
 
       this.scene.fog = new THREE.FogExp2(chapter.fogColor, activeIdx === 4 ? 0.006 : 0.008);
-      this.riverWorld.setWaterColor(chapter.waterColor);
+      this.waterLook.uniforms.uWaterColor.value.set(chapter.waterColor);
+      this.waterLook.uniforms.uDeepColor.value.set(chapter.waterColor).multiplyScalar(0.45);
+      this.waterLook.uniforms.uSkyHorizon.value.set(chapter.fogColor);
+      this.sky.setColors(chapter.fogColor);
+      this.waterLook.uniforms.uSkyZenith.value.copy(this.sky.zenithColor);
       this.scene.background = new THREE.Color(chapter.fogColor);
       this.hemiLight.color.set(chapter.ambientLightColor);
+      this.sky.setRainbow(activeIdx === CHAPTERS.length - 1, forceUpdate);
 
       if (!forceUpdate && activeIdx > prev) {
         sound.playMilestone();
@@ -934,6 +1042,13 @@ export class GameEngine {
     this.setNearbyFriend(null);
     sound.playGrandLakeVictory();
     this.meetFriend('family', false);
+    // Finale: the family swims over and circles Whiskers while the camera slowly orbits.
+    this.riverWorld.setFamilyFollow(this.player.group.position);
+    this.sky.setRainbow(true);
+    this.victoryTime = 0;
+    const p = this.player.group.position;
+    this.victoryOrbit = Math.atan2(this.camera.position.x - p.x, this.camera.position.z - p.z);
+    this.sparkles.burst(p, CONFETTI, 60, 5, 2);
     narrator.say(cheer('You made it home! Great swimming'), true);
   }
 
@@ -953,6 +1068,9 @@ export class GameEngine {
     this.itemManager.dispose();
     this.ringManager.dispose();
     this.chestManager.dispose();
+    this.forest.dispose();
+    this.sparkles.dispose();
+    this.sky.dispose();
     narrator.stop();
     this.renderer.dispose();
 

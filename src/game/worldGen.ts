@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { getGameTextures } from './textures';
 import { CatfishCharacter } from './catfishModel';
 import type { FriendSpot } from './friends';
+import { mergeStaticMeshes } from './perf';
 
 export interface RiverChapterInfo {
   id: number;
@@ -409,6 +410,8 @@ function createTaperedTubeGeometry(
   return geo;
 }
 
+const _famPrev = new THREE.Vector3();
+
 /**
  * River World Manager: lush multi-tiered gallery forest with wind-swaying branches and water roots,
  * abundant short riverbank grass, geomorphological riverbed, and high-polygon smooth river animals.
@@ -416,6 +419,7 @@ function createTaperedTubeGeometry(
 export class RiverWorld {
   public scene: THREE.Scene;
   public riverBedGroup: THREE.Group;
+  public riverBedMaterial!: THREE.MeshStandardMaterial;
   public treesGroup: THREE.Group;
   public sunbeamsGroup: THREE.Group;
   public waterMesh: THREE.Mesh;
@@ -431,17 +435,9 @@ export class RiverWorld {
   public currentZones: RiverCurrentZone[] = [];
   /** Every animal Whiskers can sniff to say hi (see friends.ts). */
   public friendSpots: FriendSpot[] = [];
+  private familyFollow: THREE.Vector3 | null = null;
   public logObstacles: LogObstacle[] = [];
 
-  public windBranches: {
-    object: THREE.Object3D;
-    worldZ: number;
-    baseRotX: number;
-    baseRotZ: number;
-    phase: number;
-    speed: number;
-    amp: number;
-  }[] = [];
 
   private grassTimeUniform = { value: 0 };
 
@@ -577,7 +573,8 @@ export class RiverWorld {
     this.scene.add(this.bankGrassInstancedMesh);
 
     // 4. Instanced Textured River Cobbles & Smooth Boulders
-    const stoneGeo = new THREE.IcosahedronGeometry(0.8, 3);
+    // Detail 1 (80 faces) instead of 3 (1,280): 440 stones were over half a million triangles.
+    const stoneGeo = new THREE.IcosahedronGeometry(0.8, 1);
     stoneGeo.scale(1.3, 0.62, 1.08);
     const stoneMat = new THREE.MeshStandardMaterial({
       map: textures.rockAlbedo,
@@ -588,7 +585,7 @@ export class RiverWorld {
     const maxStones = 440;
     this.stoneInstancedMesh = new THREE.InstancedMesh(stoneGeo, stoneMat, maxStones);
     this.stoneInstancedMesh.receiveShadow = true;
-    this.stoneInstancedMesh.castShadow = true;
+    this.stoneInstancedMesh.castShadow = false;
     this.scene.add(this.stoneInstancedMesh);
 
     // 5. Bubble Particle System
@@ -679,19 +676,17 @@ export class RiverWorld {
 
     const bladeConfigs = [
       { ang: 0.0, r: 0.05, h: 0.72, arch: 0.22 },
-      { ang: 0.9, r: 0.14, h: 0.62, arch: 0.26 },
-      { ang: 1.85, r: 0.12, h: 0.78, arch: 0.24 },
-      { ang: 2.75, r: 0.15, h: 0.58, arch: 0.28 },
-      { ang: 3.65, r: 0.11, h: 0.82, arch: 0.21 },
-      { ang: 4.55, r: 0.14, h: 0.65, arch: 0.25 },
-      { ang: 5.45, r: 0.13, h: 0.7, arch: 0.24 },
+      { ang: 1.25, r: 0.14, h: 0.66, arch: 0.26 },
+      { ang: 2.5, r: 0.13, h: 0.78, arch: 0.24 },
+      { ang: 3.75, r: 0.12, h: 0.6, arch: 0.27 },
+      { ang: 5.0, r: 0.13, h: 0.74, arch: 0.23 },
     ];
 
     bladeConfigs.forEach((cfg) => {
       const vOffset = vertices.length / 3;
       const cosA = Math.cos(cfg.ang);
       const sinA = Math.sin(cfg.ang);
-      const steps = 4;
+      const steps = 3;
 
       for (let s = 0; s <= steps; s++) {
         const t = s / steps;
@@ -742,6 +737,7 @@ export class RiverWorld {
     const cutBankRockColor = new THREE.Color('#5f6e5c');
     const shoreMossColor = new THREE.Color('#58b352');
     const bankGrassColor = new THREE.Color('#4ea845');
+    const wetSandColor = new THREE.Color('#a48a62');
     const underwaterTint = new THREE.Color('#2aa6b8');
     const _bedTint = new THREE.Color();
 
@@ -763,8 +759,11 @@ export class RiverWorld {
         let c = riffleGravelColor;
         if (vy > 0.65) {
           c = bankGrassColor;
-        } else if (vy > 0.08) {
+        } else if (vy > 0.12) {
           c = shoreMossColor;
+        } else if (vy > -0.35) {
+          // Darker wet sand right where the water laps the bank.
+          c = wetSandColor;
         } else if (vy < -4.4) {
           c = deepPoolSiltColor;
         } else if (lateral * curvature > 1.5 && vy > -3.1) {
@@ -809,6 +808,7 @@ export class RiverWorld {
       metalness: 0.04,
     });
 
+    this.riverBedMaterial = bedMat;
     const bedMesh = new THREE.Mesh(bedGeo, bedMat);
     bedMesh.receiveShadow = true;
     this.riverBedGroup.add(bedMesh);
@@ -926,8 +926,7 @@ export class RiverWorld {
     if (this.stoneInstancedMesh.instanceColor)
       this.stoneInstancedMesh.instanceColor.needsUpdate = true;
 
-    this.createSunlitBankTreesAndRoots();
-    this.createUnderwaterSunbeams();
+    // Trees, bushes, flowers and reeds are built by forest.ts (merged for speed).
     this.createLilyPadsAndFrogs();
     this.createLogsAndDriftwood();
     this.createRiverCurrents();
@@ -938,465 +937,6 @@ export class RiverWorld {
     this.createFriendlyCapybaras();
     this.createPinkRiverDolphins();
     this.createGrandLakeParadise();
-  }
-
-  /**
-   * Builds a rich multi-tiered forest across all levels with 4 distinct tree species,
-   * wind-swaying branches/fronds, and curved roots extending into the water on shoreline trees.
-   */
-  private createSunlitBankTreesAndRoots() {
-    const textures = getGameTextures();
-
-    const trunkMat = new THREE.MeshStandardMaterial({
-      map: textures.barkAlbedo,
-      bumpMap: textures.barkBump,
-      bumpScale: 0.055,
-      color: new THREE.Color('#9c7248'),
-      roughness: 0.78,
-    });
-    const palmTrunkMat = new THREE.MeshStandardMaterial({
-      map: textures.barkAlbedo,
-      bumpMap: textures.barkBump,
-      bumpScale: 0.04,
-      color: new THREE.Color('#b08962'),
-      roughness: 0.72,
-    });
-    const wetRootMat = new THREE.MeshPhysicalMaterial({
-      map: textures.barkAlbedo,
-      bumpMap: textures.barkBump,
-      bumpScale: 0.05,
-      color: new THREE.Color('#6e4e30'),
-      roughness: 0.42,
-      clearcoat: 0.7, // Wet glistening roots dipping into the water!
-    });
-
-    const leafMatEmerald = new THREE.MeshStandardMaterial({
-      color: new THREE.Color('#42d45d'),
-      emissive: new THREE.Color('#1a5724'),
-      emissiveIntensity: 0.18,
-      roughness: 0.46,
-    });
-    const leafMatDeep = new THREE.MeshStandardMaterial({
-      color: new THREE.Color('#2fb34a'),
-      emissive: new THREE.Color('#14451d'),
-      emissiveIntensity: 0.15,
-      roughness: 0.5,
-    });
-    const willowLeafMat = new THREE.MeshStandardMaterial({
-      color: new THREE.Color('#6fe368'),
-      emissive: new THREE.Color('#256322'),
-      emissiveIntensity: 0.2,
-      roughness: 0.42,
-    });
-    const goldBlossomMat = new THREE.MeshStandardMaterial({
-      color: new THREE.Color('#ffdf38'),
-      emissive: new THREE.Color('#ffaa00'),
-      emissiveIntensity: 0.32,
-      roughness: 0.32,
-    });
-    const coralBlossomMat = new THREE.MeshStandardMaterial({
-      color: new THREE.Color('#ff7094'),
-      emissive: new THREE.Color('#d9385a'),
-      emissiveIntensity: 0.28,
-      roughness: 0.32,
-    });
-
-    // Shared high-smoothness geometries for tree parts
-    const kapokTrunkGeo = createTaperedTubeGeometry(
-      [
-        new THREE.Vector3(0, -0.4, 0),
-        new THREE.Vector3(0.15, 2.2, 0.05),
-        new THREE.Vector3(0.42, 4.8, -0.05),
-        new THREE.Vector3(0.65, 6.8, 0),
-      ],
-      0.68,
-      0.26,
-      16,
-      14
-    );
-
-    const boughGeoLeft = createTaperedTubeGeometry(
-      [
-        new THREE.Vector3(0, 0, 0),
-        new THREE.Vector3(1.1, 0.9, 0.6),
-        new THREE.Vector3(2.3, 1.4, 1.1),
-      ],
-      0.24,
-      0.08,
-      12,
-      10
-    );
-    const boughGeoRight = createTaperedTubeGeometry(
-      [
-        new THREE.Vector3(0, 0, 0),
-        new THREE.Vector3(1.2, 0.8, -0.7),
-        new THREE.Vector3(2.4, 1.3, -1.2),
-      ],
-      0.24,
-      0.08,
-      12,
-      10
-    );
-    const boughGeoTop = createTaperedTubeGeometry(
-      [
-        new THREE.Vector3(0, 0, 0),
-        new THREE.Vector3(-0.6, 1.2, 0.2),
-        new THREE.Vector3(-1.3, 2.1, 0.4),
-      ],
-      0.22,
-      0.08,
-      12,
-      10
-    );
-
-    // Curved organic shoreline root geometry that arches out from the trunk and dips down into the water
-    const waterRootGeoCenter = createTaperedTubeGeometry(
-      [
-        new THREE.Vector3(0, 1.4, 0),
-        new THREE.Vector3(0.95, 0.45, 0),
-        new THREE.Vector3(1.85, -0.65, 0.1),
-        new THREE.Vector3(2.55, -1.85, 0.15),
-      ],
-      0.22,
-      0.04,
-      16,
-      10
-    );
-    const waterRootGeoLeft = createTaperedTubeGeometry(
-      [
-        new THREE.Vector3(0, 1.25, 0.18),
-        new THREE.Vector3(0.85, 0.35, 0.72),
-        new THREE.Vector3(1.75, -0.55, 1.18),
-        new THREE.Vector3(2.35, -1.65, 1.42),
-      ],
-      0.19,
-      0.035,
-      16,
-      10
-    );
-    const waterRootGeoRight = createTaperedTubeGeometry(
-      [
-        new THREE.Vector3(0, 1.25, -0.18),
-        new THREE.Vector3(0.85, 0.35, -0.72),
-        new THREE.Vector3(1.75, -0.55, -1.18),
-        new THREE.Vector3(2.35, -1.65, -1.42),
-      ],
-      0.19,
-      0.035,
-      16,
-      10
-    );
-
-    // Smooth high-poly organic foliage dome
-    const canopyDomeGeo = new THREE.IcosahedronGeometry(2.15, 3);
-    canopyDomeGeo.scale(1.32, 0.68, 1.25);
-
-    const smallCanopyGeo = new THREE.IcosahedronGeometry(1.45, 2);
-    smallCanopyGeo.scale(1.25, 0.72, 1.2);
-
-    // Cascading weeping willow bough geometry
-    const willowDropGeo = new THREE.CapsuleGeometry(0.28, 2.2, 8, 12);
-    willowDropGeo.translate(0, -1.1, 0);
-
-    // Graceful curved palm trunk & arched pinnate frond
-    const palmStemGeo1 = createTaperedTubeGeometry(
-      [
-        new THREE.Vector3(0, -0.3, 0),
-        new THREE.Vector3(0.45, 2.1, 0.15),
-        new THREE.Vector3(1.15, 4.4, 0.25),
-        new THREE.Vector3(1.65, 6.2, 0.2),
-      ],
-      0.26,
-      0.13,
-      16,
-      12
-    );
-    const palmStemGeo2 = createTaperedTubeGeometry(
-      [
-        new THREE.Vector3(-0.2, -0.3, -0.25),
-        new THREE.Vector3(0.15, 1.8, -0.45),
-        new THREE.Vector3(0.65, 3.7, -0.6),
-        new THREE.Vector3(0.95, 5.1, -0.65),
-      ],
-      0.22,
-      0.11,
-      14,
-      10
-    );
-
-    const palmFrondCurve = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(0, 0, 0),
-      new THREE.Vector3(0, 0.42, 1.15),
-      new THREE.Vector3(0, 0.12, 2.35),
-      new THREE.Vector3(0, -0.58, 3.25),
-    ]);
-    const frondGeo = new THREE.TubeGeometry(palmFrondCurve, 12, 0.28, 8, false);
-    frondGeo.scale(1.45, 0.22, 1.0);
-
-    const bloomClusterGeo = new THREE.IcosahedronGeometry(0.62, 2);
-    bloomClusterGeo.scale(1.3, 0.75, 1.2);
-
-    // Place a lush 2-tier gallery forest along both riverbanks across all 5 chapters!
-    for (let dist = 12; dist < 3060; dist += 15) {
-      const { position, normal, width } = getRiverPath(dist);
-      const halfW = width * 0.5;
-
-      [-1, 1].forEach((side) => {
-        // Tier 0: Waterfront / Shoreline tree right near the water's edge with roots dipping into the river
-        // Tier 1: Upper forest background tree slightly higher & further back on the bank
-        const tiers = dist % 30 === 12 ? [0, 1] : [0];
-
-        tiers.forEach((tier) => {
-          const treeGroup = new THREE.Group();
-          // Flip X for right-side bank so +X in local tree space always points TOWARD the river water!
-          const inwardSign = -side;
-
-          // Pick 1 of 4 distinct tree species with rich variety
-          const speciesHash = Math.abs(Math.floor(dist * 0.37 + side * 7 + tier * 13)) % 4;
-
-          const bankOffset =
-            tier === 0
-              ? halfW + 1.35 + ((dist * 3 + (side > 0 ? 1 : 0)) % 1.4)
-              : halfW + 6.8 + ((dist * 5 + (side > 0 ? 2 : 0)) % 5.5);
-
-          const groundY = getRiverBedElevationAt(dist, side * bankOffset);
-          const worldX = position.x + normal.x * (side * bankOffset);
-          const worldZ = position.z + normal.z * (side * bankOffset) + (tier === 1 ? 3.5 : 0);
-
-          // 1. Add organic curved roots extending into the water for waterfront trees!
-          if (tier === 0) {
-            const rootContainer = new THREE.Group();
-            // Orient root container so +X points directly toward the river channel
-            rootContainer.scale.x = inwardSign;
-
-            const rCenter = new THREE.Mesh(waterRootGeoCenter, wetRootMat);
-            const rLeft = new THREE.Mesh(waterRootGeoLeft, wetRootMat);
-            const rRight = new THREE.Mesh(waterRootGeoRight, wetRootMat);
-            rootContainer.add(rCenter, rLeft, rRight);
-
-            // Position roots so their tips dip naturally below water level (y = 0)
-            rootContainer.position.y = 0.1;
-            treeGroup.add(rootContainer);
-          }
-
-          // 2. Build the specific tree species with wind-animated branch pivots
-          if (speciesHash === 0) {
-            // SPECIES 0: Giant Amazonian Kapok / Ceiba Canopy Tree
-            const trunk = new THREE.Mesh(kapokTrunkGeo, trunkMat);
-            trunk.scale.x = inwardSign;
-            trunk.castShadow = true;
-            treeGroup.add(trunk);
-
-            const crownPivot = new THREE.Group();
-            crownPivot.position.set(inwardSign * 0.65, 6.6, 0);
-
-            const bLeft = new THREE.Mesh(boughGeoLeft, trunkMat);
-            bLeft.scale.x = inwardSign;
-            const bRight = new THREE.Mesh(boughGeoRight, trunkMat);
-            bRight.scale.x = inwardSign;
-            const bTop = new THREE.Mesh(boughGeoTop, trunkMat);
-            bTop.scale.x = inwardSign;
-            crownPivot.add(bLeft, bRight, bTop);
-
-            const cMain = new THREE.Mesh(canopyDomeGeo, leafMatEmerald);
-            cMain.position.set(0, 1.5, 0);
-            const cLeft = new THREE.Mesh(smallCanopyGeo, leafMatDeep);
-            cLeft.position.set(inwardSign * 2.1, 1.4, 1.1);
-            const cRight = new THREE.Mesh(smallCanopyGeo, leafMatEmerald);
-            cRight.position.set(inwardSign * 2.2, 1.3, -1.2);
-            const cBack = new THREE.Mesh(smallCanopyGeo, leafMatDeep);
-            cBack.position.set(inwardSign * -1.2, 2.2, 0.3);
-
-            crownPivot.add(cMain, cLeft, cRight, cBack);
-            treeGroup.add(crownPivot);
-
-            this.windBranches.push({
-              object: crownPivot,
-              worldZ,
-              baseRotX: 0,
-              baseRotZ: 0,
-              phase: dist * 0.15 + side,
-              speed: 1.25,
-              amp: 0.055,
-            });
-          } else if (speciesHash === 1) {
-            // SPECIES 1: Multi-Trunk Graceful River Palm / Açaí Clump
-            const stem1 = new THREE.Mesh(palmStemGeo1, palmTrunkMat);
-            stem1.scale.x = inwardSign;
-            const stem2 = new THREE.Mesh(palmStemGeo2, palmTrunkMat);
-            stem2.scale.x = inwardSign;
-            treeGroup.add(stem1, stem2);
-
-            const crown1 = new THREE.Group();
-            crown1.position.set(inwardSign * 1.65, 6.15, 0.2);
-            for (let f = 0; f < 9; f++) {
-              const fPivot = new THREE.Group();
-              fPivot.rotation.y = (f / 9) * Math.PI * 2 + dist * 0.07;
-              const frond = new THREE.Mesh(
-                frondGeo,
-                f % 2 === 0 ? leafMatEmerald : willowLeafMat
-              );
-              fPivot.add(frond);
-              crown1.add(fPivot);
-            }
-            treeGroup.add(crown1);
-
-            const crown2 = new THREE.Group();
-            crown2.position.set(inwardSign * 0.95, 5.05, -0.65);
-            crown2.scale.setScalar(0.78);
-            for (let f = 0; f < 7; f++) {
-              const fPivot = new THREE.Group();
-              fPivot.rotation.y = (f / 7) * Math.PI * 2 + 0.4;
-              const frond = new THREE.Mesh(
-                frondGeo,
-                f % 2 === 0 ? leafMatDeep : leafMatEmerald
-              );
-              fPivot.add(frond);
-              crown2.add(fPivot);
-            }
-            treeGroup.add(crown2);
-
-            this.windBranches.push(
-              {
-                object: crown1,
-                worldZ,
-                baseRotX: 0,
-                baseRotZ: 0,
-                phase: dist * 0.2,
-                speed: 1.6,
-                amp: 0.08,
-              },
-              {
-                object: crown2,
-                worldZ,
-                baseRotX: 0,
-                baseRotZ: 0,
-                phase: dist * 0.2 + 1.2,
-                speed: 1.75,
-                amp: 0.085,
-              }
-            );
-          } else if (speciesHash === 2) {
-            // SPECIES 2: Weeping River Willow / Trailing Inga Tree
-            const trunk = new THREE.Mesh(kapokTrunkGeo, trunkMat);
-            trunk.scale.set(inwardSign * 0.95, 0.82, 0.95);
-            treeGroup.add(trunk);
-
-            const willowCrown = new THREE.Group();
-            willowCrown.position.set(inwardSign * 0.85, 5.4, 0);
-
-            const topCanopy = new THREE.Mesh(canopyDomeGeo, willowLeafMat);
-            topCanopy.scale.set(1.05, 0.85, 1.05);
-            willowCrown.add(topCanopy);
-
-            // Trailing willow curtains swaying gently over the riverbank
-            for (let w = 0; w < 6; w++) {
-              const ang = (w / 6) * Math.PI * 2;
-              const rx = Math.cos(ang) * 1.65 + inwardSign * 0.5;
-              const rz = Math.sin(ang) * 1.55;
-              const boughPivot = new THREE.Group();
-              boughPivot.position.set(rx, 0.2, rz);
-              const curtain = new THREE.Mesh(willowDropGeo, willowLeafMat);
-              boughPivot.add(curtain);
-              willowCrown.add(boughPivot);
-
-              this.windBranches.push({
-                object: boughPivot,
-                worldZ,
-                baseRotX: 0,
-                baseRotZ: inwardSign * 0.08,
-                phase: dist * 0.18 + w * 0.9,
-                speed: 1.85,
-                amp: 0.11,
-              });
-            }
-
-            treeGroup.add(willowCrown);
-          } else {
-            // SPECIES 3: Golden & Coral Tabebuia / Ipê Flowering Canopy Tree
-            const trunk = new THREE.Mesh(kapokTrunkGeo, trunkMat);
-            trunk.scale.set(inwardSign * 0.9, 0.92, 0.9);
-            treeGroup.add(trunk);
-
-            const flowerCrown = new THREE.Group();
-            flowerCrown.position.set(inwardSign * 0.55, 6.1, 0);
-
-            const bLeft = new THREE.Mesh(boughGeoLeft, trunkMat);
-            bLeft.scale.x = inwardSign;
-            const bRight = new THREE.Mesh(boughGeoRight, trunkMat);
-            bRight.scale.x = inwardSign;
-            flowerCrown.add(bLeft, bRight);
-
-            const c1 = new THREE.Mesh(smallCanopyGeo, leafMatEmerald);
-            c1.position.set(0, 1.1, 0);
-            const c2 = new THREE.Mesh(smallCanopyGeo, leafMatDeep);
-            c2.position.set(inwardSign * 1.9, 1.2, 0.9);
-            const c3 = new THREE.Mesh(smallCanopyGeo, leafMatEmerald);
-            c3.position.set(inwardSign * 1.9, 1.2, -0.9);
-            flowerCrown.add(c1, c2, c3);
-
-            const bMat = (Math.floor(dist / 15) + tier) % 2 === 0 ? goldBlossomMat : coralBlossomMat;
-            const bPositions = [
-              [0, 1.85, 0],
-              [inwardSign * 2.1, 1.75, 0.95],
-              [inwardSign * 2.1, 1.75, -0.95],
-              [inwardSign * 1.1, 2.0, 0.2],
-            ];
-            bPositions.forEach(([bx, by, bz]) => {
-              const bloom = new THREE.Mesh(bloomClusterGeo, bMat);
-              bloom.position.set(bx, by, bz);
-              flowerCrown.add(bloom);
-            });
-
-            treeGroup.add(flowerCrown);
-
-            this.windBranches.push({
-              object: flowerCrown,
-              worldZ,
-              baseRotX: 0,
-              baseRotZ: 0,
-              phase: dist * 0.14 + tier,
-              speed: 1.35,
-              amp: 0.06,
-            });
-          }
-
-          treeGroup.position.set(worldX, Math.max(0.55, groundY - 0.15), worldZ);
-          const s = (tier === 0 ? 0.92 : 1.12) + ((dist * 7) % 5) * 0.06;
-          treeGroup.scale.set(s, s, s);
-          this.treesGroup.add(treeGroup);
-        });
-      });
-    }
-  }
-
-  /**
-   * Adds volumetric underwater sunlight shafts (god-rays) slanting down into deep pools
-   */
-  private createUnderwaterSunbeams() {
-    const beamGeo = new THREE.ConeGeometry(2.6, 6.5, 20, 1, true);
-    const beamMat = new THREE.MeshBasicMaterial({
-      color: 0xe6ffff,
-      transparent: true,
-      opacity: 0.09,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    });
-
-    for (let dist = 45; dist < 2450; dist += 65) {
-      const { position, normal, width } = getRiverPath(dist);
-      const lateral = Math.sin(dist * 0.07) * (width * 0.25);
-      const beam = new THREE.Mesh(beamGeo, beamMat);
-      beam.position.set(
-        position.x + normal.x * lateral,
-        -2.6,
-        position.z + normal.z * lateral
-      );
-      beam.rotation.z = -0.22;
-      beam.rotation.x = 0.12;
-      this.sunbeamsGroup.add(beam);
-    }
   }
 
   /**
@@ -1541,6 +1081,8 @@ export class RiverWorld {
       frogGroup.rotation.y = side * -1.2;
       padGroup.add(frogGroup);
 
+      mergeStaticMeshes(frogGroup, [throatSac]);
+      mergeStaticMeshes(padGroup, [frogGroup]);
       this.friendSpots.push({ kind: 'frog', object: frogGroup });
       this.frogs.push({
         group: frogGroup,
@@ -1784,6 +1326,7 @@ export class RiverWorld {
         position.z + normal.z * lateral
       );
       schoolGroup.position.copy(centerPos);
+      mergeStaticMeshes(schoolGroup, tails);
       this.animalsGroup.add(schoolGroup);
       this.friendSpots.push({ kind: 'tetras', object: schoolGroup });
 
@@ -1922,6 +1465,7 @@ export class RiverWorld {
         position.z + normal.z * lateral
       );
       turtle.position.copy(basePos);
+      mergeStaticMeshes(turtle, [...flippers, headGroup]);
       this.animalsGroup.add(turtle);
       this.friendSpots.push({ kind: 'turtle', object: turtle });
 
@@ -2024,6 +1568,7 @@ export class RiverWorld {
         position.z + normal.z * lateral
       );
       dfGroup.position.copy(basePos);
+      mergeStaticMeshes(dfGroup, [wingFL, wingFR, wingBL, wingBR]);
       this.animalsGroup.add(dfGroup);
       this.friendSpots.push({ kind: 'dragonfly', object: dfGroup });
 
@@ -2136,6 +1681,7 @@ export class RiverWorld {
       capy.rotation.y = side === 1 ? -Math.PI / 2 - 0.4 : Math.PI / 2 + 0.4;
       capy.scale.set(0.95, 0.95, 0.95);
 
+      mergeStaticMeshes(capy);
       this.animalsGroup.add(capy);
       this.friendSpots.push({ kind: 'capybara', object: capy });
     });
@@ -2290,6 +1836,7 @@ export class RiverWorld {
       );
       dolph.rotation.y = Math.PI;
 
+      mergeStaticMeshes(dolph, [flukeMesh]);
       this.animalsGroup.add(dolph);
       this.friendSpots.push({ kind: 'dolphin', object: dolph });
       this.dolphins.push({
@@ -2306,38 +1853,7 @@ export class RiverWorld {
     const lakeCenterZ = -2750;
     const lakeCenterX = 0;
 
-    const fallMat = new THREE.MeshStandardMaterial({
-      color: new THREE.Color('#d4f7ff'),
-      roughness: 0.1,
-      transparent: true,
-      opacity: 0.85,
-    });
-    const fallGeo = new THREE.PlaneGeometry(35, 18, 16, 16);
-    const fallMesh = new THREE.Mesh(fallGeo, fallMat);
-    fallMesh.position.set(lakeCenterX, 6, lakeCenterZ - 90);
-    this.grandLakeCelebrationGroup.add(fallMesh);
-
-    const gFlowerMat = new THREE.MeshStandardMaterial({
-      color: new THREE.Color('#ffe169'),
-      emissive: new THREE.Color('#ffc107'),
-      emissiveIntensity: 0.4,
-      roughness: 0.3,
-    });
-    for (let f = 0; f < 8; f++) {
-      const ang = (f / 8) * Math.PI * 2;
-      const r = 42;
-      const fGroup = new THREE.Group();
-      const flowerCore = new THREE.SphereGeometry(1.2, 20, 20);
-      const mCore = new THREE.Mesh(flowerCore, gFlowerMat);
-      fGroup.add(mCore);
-
-      fGroup.position.set(
-        lakeCenterX + Math.cos(ang) * r,
-        -0.2,
-        lakeCenterZ + Math.sin(ang) * r
-      );
-      this.grandLakeCelebrationGroup.add(fGroup);
-    }
+    // The island, lily pads and lotus flowers live in forest.ts; the rainbow is in sky.ts.
 
     const familyData = [
       { name: 'Mother Catfish (Mariana)', color: 0, r: 18, s: 0.6, phase: 0, scale: 1.05 },
@@ -2364,6 +1880,21 @@ export class RiverWorld {
     });
   }
 
+  /**
+   * Have the catfish family gather around and follow `target` (Whiskers' position), or go
+   * back to circling the lake with null.
+   */
+  public setFamilyFollow(target: THREE.Vector3 | null) {
+    if (target && !this.familyFollow) {
+      const n = this.grandLakeCatfish.length;
+      this.grandLakeCatfish.forEach((cat, i) => {
+        const a = (i / n) * Math.PI * 2;
+        cat.character.group.position.set(target.x + Math.cos(a) * 14, target.y - 0.6, target.z + Math.sin(a) * 14);
+      });
+    }
+    this.familyFollow = target;
+  }
+
   public setWaterColor(hex: string) {
     (this.waterMesh.material as THREE.MeshPhysicalMaterial).color.set(hex);
   }
@@ -2375,21 +1906,7 @@ export class RiverWorld {
     // Advance grass wind shader uniform
     this.grassTimeUniform.value += dt;
 
-    // Animate water surface normal/ripple scrolling downstream
-    const textures = getGameTextures();
-    textures.waterNormal.offset.y -= dt * 0.14;
-    textures.waterNormal.offset.x += Math.sin(playerDist * 0.02) * dt * 0.03;
-
-    // 1. Slowly Moving Forest Tree Branches, Palm Fronds & Willow Boughs in the Wind
-    const windTime = this.grassTimeUniform.value;
-    for (let i = 0; i < this.windBranches.length; i++) {
-      const wb = this.windBranches[i];
-      if (Math.abs(wb.worldZ - position.z) > 135) continue;
-      const wave1 = Math.sin(windTime * wb.speed + wb.phase);
-      const wave2 = Math.cos(windTime * (wb.speed * 0.72) + wb.phase * 1.3);
-      wb.object.rotation.z = wb.baseRotZ + wave1 * wb.amp;
-      wb.object.rotation.x = wb.baseRotX + wave2 * (wb.amp * 0.75);
-    }
+    // (Water ripples are animated in water.ts; tree sway in forest.ts.)
 
     // 2. Bubble drift
     const pos = this.bubbleParticles.geometry.attributes.position;
@@ -2488,14 +2005,38 @@ export class RiverWorld {
     });
 
     // 9. Grand Lake High-Poly Catfish Family Swimming
-    this.grandLakeCatfish.forEach((cat) => {
+    this.grandLakeCatfish.forEach((cat, idx) => {
+      const g = cat.character.group;
+      if (this.familyFollow) {
+        // Swim in close, playful circles around Whiskers.
+        const t = this.familyFollow;
+        cat.phase += dt * (0.85 + idx * 0.07);
+        const r = 2.8 + idx * 1.15;
+        const tx = t.x + Math.cos(cat.phase) * r;
+        const ty = t.y - 0.15 + Math.sin(cat.phase * 2 + idx) * 0.3;
+        const tz = t.z + Math.sin(cat.phase) * r;
+        _famPrev.copy(g.position);
+        g.position.x = THREE.MathUtils.damp(g.position.x, tx, 2.2, dt);
+        g.position.y = THREE.MathUtils.damp(g.position.y, ty, 2.2, dt);
+        g.position.z = THREE.MathUtils.damp(g.position.z, tz, 2.2, dt);
+        const vx = g.position.x - _famPrev.x;
+        const vz = g.position.z - _famPrev.z;
+        if (vx * vx + vz * vz > 1e-8) {
+          const want = Math.atan2(vx, vz);
+          let diff = want - g.rotation.y;
+          diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+          g.rotation.y += diff * Math.min(1, dt * 6);
+        }
+        cat.character.update(dt, 1.6, 0.3, 0);
+        return;
+      }
       cat.phase += dt * cat.speed;
       const cx = cat.basePos.x + Math.cos(cat.phase) * cat.orbitRadius;
       const cz = cat.basePos.z + Math.sin(cat.phase) * cat.orbitRadius;
       const cy = cat.basePos.y + Math.sin(cat.phase * 2) * 0.4;
 
-      cat.character.group.position.set(cx, cy, cz);
-      cat.character.group.rotation.y = Math.atan2(-Math.sin(cat.phase), Math.cos(cat.phase));
+      g.position.set(cx, cy, cz);
+      g.rotation.y = Math.atan2(-Math.sin(cat.phase), Math.cos(cat.phase));
       cat.character.update(dt, 1.4, 0.25, Math.cos(cat.phase * 2) * 0.15);
     });
   }
