@@ -29,10 +29,22 @@ class SoundManager {
       this.masterGain = this.ctx.createGain();
       this.masterGain.gain.setValueAtTime(this.isMuted ? 0 : 0.8, this.ctx.currentTime);
       this.masterGain.connect(this.ctx.destination);
+      // Pause all sound while the tab or app is in the background (saves battery on phones).
+      document.addEventListener('visibilitychange', () => {
+        if (!this.ctx) return;
+        if (document.hidden) this.ctx.suspend();
+        else this.ctx.resume();
+      });
     }
     if (this.ctx.state === 'suspended') {
       this.ctx.resume();
     }
+  }
+
+  /** Shared audio graph for the music player (creates the context on first use). */
+  public getGraph(): { ctx: AudioContext; master: GainNode } | null {
+    this.initCtx();
+    return this.ctx && this.masterGain ? { ctx: this.ctx, master: this.masterGain } : null;
   }
 
   public setMuted(muted: boolean) {

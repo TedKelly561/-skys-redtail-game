@@ -99,11 +99,10 @@ export function findNearbyNewFriend(
  * Renders a small picture of each friend from its real in-game model, so the sticker book
  * matches what the child saw in the river. Uses a short-lived second WebGL canvas.
  */
-export function renderFriendStickers(spots: FriendSpot[]): Partial<Record<FriendKind, string>> {
+export function renderFriendStickers(spots: FriendSpot[], size = 256): Partial<Record<FriendKind, string>> {
   const out: Partial<Record<FriendKind, string>> = {};
   let renderer: THREE.WebGLRenderer | null = null;
   try {
-    const size = 256;
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
     renderer.setPixelRatio(1);
     renderer.setSize(size, size, false);
