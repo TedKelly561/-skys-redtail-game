@@ -193,6 +193,20 @@ export function getRiverPath(distance: number): RiverPathSample {
 }
 
 /**
+ * Converts a world position back to river coordinates. The river runs down -Z (z = -distance)
+ * with gentle side-to-side bends, so two refinement steps along the tangent are plenty.
+ */
+export function worldToRiver(x: number, z: number): { distance: number; lateral: number } {
+  let d = -z;
+  for (let i = 0; i < 2; i++) {
+    const { position, tangent } = getRiverPath(d);
+    d += (x - position.x) * tangent.x + (z - position.z) * tangent.z;
+  }
+  const { position, normal } = getRiverPath(d);
+  return { distance: d, lateral: (x - position.x) * normal.x + (z - position.z) * normal.z };
+}
+
+/**
  * Exact riverbed & riverbank elevation at any (distance, lateralOffset) coordinate.
  */
 export function getRiverBedElevationAt(distance: number, lateralOffset: number): number {
@@ -436,6 +450,8 @@ export class RiverWorld {
   /** Every animal Whiskers can sniff to say hi (see friends.ts). */
   public friendSpots: FriendSpot[] = [];
   private familyFollow: THREE.Vector3 | null = null;
+  private familyParty = 0;
+  private partyTime = 0;
   public logObstacles: LogObstacle[] = [];
 
 
@@ -1895,6 +1911,11 @@ export class RiverWorld {
     this.familyFollow = target;
   }
 
+  /** The family hops and spins around Whiskers for a few seconds (rainbow party). */
+  public startFamilyParty(seconds: number) {
+    this.familyParty = seconds;
+  }
+
   public setWaterColor(hex: string) {
     (this.waterMesh.material as THREE.MeshPhysicalMaterial).color.set(hex);
   }
@@ -2005,6 +2026,10 @@ export class RiverWorld {
     });
 
     // 9. Grand Lake High-Poly Catfish Family Swimming
+    if (this.familyParty > 0) {
+      this.familyParty = Math.max(0, this.familyParty - dt);
+      this.partyTime += dt;
+    }
     this.grandLakeCatfish.forEach((cat, idx) => {
       const g = cat.character.group;
       if (this.familyFollow) {
@@ -2013,7 +2038,8 @@ export class RiverWorld {
         cat.phase += dt * (0.85 + idx * 0.07);
         const r = 2.8 + idx * 1.15;
         const tx = t.x + Math.cos(cat.phase) * r;
-        const ty = t.y - 0.15 + Math.sin(cat.phase * 2 + idx) * 0.3;
+        const hop = this.familyParty > 0 ? Math.abs(Math.sin(this.partyTime * 5 + idx * 1.3)) * 1.3 : 0;
+        const ty = t.y - 0.15 + Math.sin(cat.phase * 2 + idx) * 0.3 + hop;
         const tz = t.z + Math.sin(cat.phase) * r;
         _famPrev.copy(g.position);
         g.position.x = THREE.MathUtils.damp(g.position.x, tx, 2.2, dt);
@@ -2021,7 +2047,9 @@ export class RiverWorld {
         g.position.z = THREE.MathUtils.damp(g.position.z, tz, 2.2, dt);
         const vx = g.position.x - _famPrev.x;
         const vz = g.position.z - _famPrev.z;
-        if (vx * vx + vz * vz > 1e-8) {
+        if (this.familyParty > 0) {
+          g.rotation.y += dt * (idx % 2 === 0 ? 5 : -5); // happy spins
+        } else if (vx * vx + vz * vz > 1e-8) {
           const want = Math.atan2(vx, vz);
           let diff = want - g.rotation.y;
           diff = Math.atan2(Math.sin(diff), Math.cos(diff));

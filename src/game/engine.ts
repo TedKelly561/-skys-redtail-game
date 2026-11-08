@@ -6,6 +6,7 @@ import {
   CHAPTERS,
   getRiverPath,
   getRiverBedElevationAt,
+  worldToRiver,
   RiverChapterInfo,
 } from './worldGen';
 import { ItemManager, RiverItem } from './items';
@@ -15,6 +16,8 @@ import { RingManager } from './rings';
 import { Forest } from './forest';
 import { Sky } from './sky';
 import { Sparkles } from './sparkles';
+import { RainbowGoal } from './rainbow';
+import { BadGuys } from './badGuys';
 import { WaterLook, addCaustics, createShorelineFoam, createWaterLook } from './water';
 import { AdaptiveResolution, DistanceStreamer, downgradePhysicalMaterials } from './perf';
 import { ChestManager } from './chests';
@@ -36,6 +39,7 @@ import {
 
 const _vec3A = new THREE.Vector3();
 
+const RAINBOW_COLORS = ['#ff4d4d', '#ff9f1a', '#ffe14d', '#4dff88', '#4dc3ff', '#9b6bff', '#ff6bd6'];
 const CONFETTI = ['#ff4d8d', '#ffd23f', '#4de3ff', '#7dff6b', '#c58bff', '#ffffff'];
 const SPARKLE_COLORS: Record<string, string[]> = {
   larva: ['#ffd23f', '#ff9a5a', '#ffffff'],
@@ -107,6 +111,11 @@ export class GameEngine {
   private forest: Forest;
   private sky: Sky;
   private sparkles: Sparkles;
+  private rainbow: RainbowGoal;
+  private badGuys: BadGuys;
+  private lastBadGuyTip: number = -999;
+  private rainbowPartyTimer: number = 0;
+  private fireworkTimer: number = 0;
   private victoryTime: number = 0;
   private victoryOrbit: number = 0;
   private confettiTimer: number = 0;
@@ -177,6 +186,9 @@ export class GameEngine {
 
   // Sniff: Whiskers' barbels pull nearby snacks and treasures in from far away for a moment.
   private readonly LAKE_FAR_EDGE = 3000;
+  private readonly LAKE_NEAR_EDGE = 2370;
+  private freeHeading: number = Math.PI;
+  private turnVelocity: number = 0;
   private readonly SNIFF_DURATION = 3;
   private readonly SNIFF_COOLDOWN = 6;
   private sniffActiveTimer: number = 0;
@@ -257,6 +269,8 @@ export class GameEngine {
     this.forest = new Forest(this.scene);
     this.sky = new Sky(this.scene, new THREE.Vector3(25, 48, 15));
     this.sparkles = new Sparkles(this.scene);
+    this.rainbow = new RainbowGoal(this.scene);
+    this.badGuys = new BadGuys(this.scene);
     this.sky.setColors(CHAPTERS[0].fogColor);
 
     // Realistic water surface, caustic light on the riverbed and shoreline foam.
@@ -283,6 +297,8 @@ export class GameEngine {
     this.streamer.addChildrenOf(this.itemManager.itemGroup, 85);
     this.streamer.addChildrenOf(this.ringManager.group, 140);
     this.streamer.addChildrenOf(this.chestManager.group, 170);
+    this.streamer.addChildrenOf(this.badGuys.caimanGroup, 140);
+    this.streamer.addChildrenOf(this.badGuys.piranhaGroup, 140);
     this.adaptiveResolution = new AdaptiveResolution(
       this.renderer,
       this.isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2)
@@ -434,6 +450,10 @@ export class GameEngine {
   public startGame(startAtChapterIndex: number = 0) {
     this.isFreeSwim = false;
     this.riverWorld.setFamilyFollow(null);
+    this.player.setRainbow(false);
+    this.rainbow.reset();
+    this.badGuys.reset();
+    this.rainbowPartyTimer = 0;
     this.gameState = 'playing';
     this.callbacks.onStateChange('playing');
     sound.startRiverAmbience();
@@ -497,9 +517,11 @@ export class GameEngine {
   public startFreeSwim() {
     if (this.gameState !== 'victory') return;
     this.isFreeSwim = true;
+    this.freeHeading = this.player.group.rotation.y;
+    this.turnVelocity = 0;
     this.gameState = 'playing';
     this.callbacks.onStateChange('playing');
-    this.callbacks.onTipMessage('Swim with your family!');
+    this.callbacks.onTipMessage('Swim anywhere! Turn left and right to explore.');
   }
 
   public triggerSonarPulse() {
@@ -517,7 +539,10 @@ export class GameEngine {
 
   /** Pictures of each friend drawn from their in-game models, for the sticker book. */
   public drawFriendStickers() {
-    return renderFriendStickers(this.riverWorld.friendSpots);
+    return renderFriendStickers([
+      ...this.riverWorld.friendSpots,
+      { kind: 'rainbow', object: this.rainbow.pearl },
+    ]);
   }
 
   private setNearbyFriend(kind: FriendKind | null) {
@@ -608,6 +633,8 @@ export class GameEngine {
       this.streamer.update(dt, this.player.group.position);
       this.adaptiveResolution.update(rawDt);
       this.sky.update(dt, this.camera.position);
+      this.rainbow.update(dt);
+      this.updateRainbowParty(dt);
       this.sparkles.update(
         dt,
         this.renderer.domElement.height / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)))
@@ -624,6 +651,65 @@ export class GameEngine {
     };
 
     this.frameId = requestAnimationFrame(tick);
+  }
+
+  /** Free swimming in the Grand Lake: Whiskers keeps cruising and turns to go anywhere. */
+  private updateLakeSwim(dt: number, steerX: number, diveY: number, isBoosting: boolean) {
+    const speedCfg = this.SPEEDS[this.paceMode];
+    this.swimSeconds += dt;
+    this.turnVelocity = THREE.MathUtils.damp(this.turnVelocity, -steerX * 2.0, 6, dt);
+    this.freeHeading += this.turnVelocity * dt;
+
+    const target = this.tummy <= 0 ? speedCfg.hungry : isBoosting ? speedCfg.boost : speedCfg.base * 0.85;
+    this.forwardSpeed = THREE.MathUtils.damp(this.forwardSpeed, target, 3.2, dt);
+    const fx = Math.sin(this.freeHeading);
+    const fz = Math.cos(this.freeHeading);
+    const p = this.player.group.position;
+    const step = this.forwardSpeed * dt;
+    const nx = p.x + fx * step;
+    const nz = p.z + fz * step;
+    const next = worldToRiver(nx, nz);
+    const inside =
+      next.distance > this.LAKE_NEAR_EDGE &&
+      next.distance < this.LAKE_FAR_EDGE &&
+      getRiverBedElevationAt(next.distance, next.lateral) < -1.3;
+    let x = p.x;
+    let z = p.z;
+    if (inside) {
+      x = nx;
+      z = nz;
+      this.playerDistance = next.distance;
+      this.playerLateral = next.lateral;
+      const missionRes = this.dailyMissionsManager.recordSwimDistanceDelta(step);
+      if (missionRes) this.handleDailyMissionResult(missionRes);
+    } else {
+      // Reached the shore: turn gently back toward open water.
+      const center = getRiverPath(THREE.MathUtils.clamp(this.playerDistance, 2480, 2880)).position;
+      const want = Math.atan2(center.x - p.x, center.z - p.z);
+      const diff = Math.atan2(Math.sin(want - this.freeHeading), Math.cos(want - this.freeHeading));
+      this.freeHeading += diff * Math.min(1, dt * 1.8);
+    }
+
+    const bed = getRiverBedElevationAt(this.playerDistance, this.playerLateral);
+    this.depthVelocity = THREE.MathUtils.damp(this.depthVelocity, diveY * 5.2, 6.5, dt);
+    this.playerDepth = THREE.MathUtils.clamp(
+      this.playerDepth + this.depthVelocity * dt,
+      Math.min(-0.85, bed + 0.45),
+      -0.38
+    );
+
+    this.player.group.position.set(x, this.playerDepth, z);
+    this.player.group.rotation.y = this.freeHeading;
+    this.player.update(dt, this.forwardSpeed, steerX, diveY);
+
+    this.dirLight.position.set(x + 25, 48, z + 15);
+    this.dirLight.target.position.set(x, this.playerDepth, z);
+    this.dirLight.target.updateMatrixWorld();
+
+    _vec3A.set(x - fx * 6.2, Math.max(0.1, this.playerDepth + 3.1), z - fz * 6.2);
+    this.camera.position.lerp(_vec3A, Math.min(1.0, dt * 4));
+    _vec3B.set(x + fx * 4.8, this.playerDepth + 0.25, z + fz * 4.8);
+    this.camera.lookAt(_vec3B);
   }
 
   private updateVictoryMode(dt: number) {
@@ -750,99 +836,105 @@ export class GameEngine {
     }
     targetSpeed += this.currentBoostBonus;
 
-    this.forwardSpeed = THREE.MathUtils.damp(this.forwardSpeed, targetSpeed, 3.2, dt);
-    const distDelta = this.forwardSpeed * dt;
     const prevDistance = this.playerDistance;
-    this.playerDistance += distDelta;
-    this.swimSeconds += dt;
-    // The lake ends a little past here; keep Whiskers inside the world while free swimming.
-    if (this.playerDistance > this.LAKE_FAR_EDGE) {
-      this.playerDistance = this.LAKE_FAR_EDGE;
-    }
+    if (this.isFreeSwim) {
+      // Grand Lake: swim anywhere (left/right turns Whiskers all the way around).
+      this.updateLakeSwim(dt, steerX, diveY, isBoosting);
+    } else {
+      this.forwardSpeed = THREE.MathUtils.damp(this.forwardSpeed, targetSpeed, 3.2, dt);
+      const distDelta = this.forwardSpeed * dt;
+      this.playerDistance += distDelta;
+      this.swimSeconds += dt;
+      // The lake ends a little past here; keep Whiskers inside the world while free swimming.
+      if (this.playerDistance > this.LAKE_FAR_EDGE) {
+        this.playerDistance = this.LAKE_FAR_EDGE;
+      }
 
-    const swimMissionRes = this.dailyMissionsManager.recordSwimDistanceDelta(distDelta);
-    if (swimMissionRes) {
-      this.handleDailyMissionResult(swimMissionRes);
-    }
+      const swimMissionRes = this.dailyMissionsManager.recordSwimDistanceDelta(distDelta);
+      if (swimMissionRes) {
+        this.handleDailyMissionResult(swimMissionRes);
+      }
 
-    if (this.playerDistance > this.furthestDistanceReached) {
-      this.furthestDistanceReached = Math.round(this.playerDistance);
-    }
+      if (this.playerDistance > this.furthestDistanceReached) {
+        this.furthestDistanceReached = Math.round(this.playerDistance);
+      }
 
-    const maxLateral = width / 2 - 2.2;
-    const targetLatVel = steerX * 9.2 + currentSwirlLateral;
-    this.lateralVelocity = THREE.MathUtils.damp(this.lateralVelocity, targetLatVel, 6.5, dt);
-    this.playerLateral += this.lateralVelocity * dt;
-    this.playerLateral = THREE.MathUtils.clamp(this.playerLateral, -maxLateral, maxLateral);
+      const maxLateral = width / 2 - 2.2;
+      const targetLatVel = steerX * 9.2 + currentSwirlLateral;
+      this.lateralVelocity = THREE.MathUtils.damp(this.lateralVelocity, targetLatVel, 6.5, dt);
+      this.playerLateral += this.lateralVelocity * dt;
+      this.playerLateral = THREE.MathUtils.clamp(this.playerLateral, -maxLateral, maxLateral);
 
-    // Dynamic organic riverbed floor elevation at Whiskers' exact (distance, lateral) coordinate!
-    const localBedY = getRiverBedElevationAt(this.playerDistance, this.playerLateral);
-    const minAllowedDepth = Math.min(-0.85, localBedY + 0.45);
+      // Dynamic organic riverbed floor elevation at Whiskers' exact (distance, lateral) coordinate!
+      const localBedY = getRiverBedElevationAt(this.playerDistance, this.playerLateral);
+      const minAllowedDepth = Math.min(-0.85, localBedY + 0.45);
 
-    const targetDepthVel = diveY * 5.2;
-    this.depthVelocity = THREE.MathUtils.damp(this.depthVelocity, targetDepthVel, 6.5, dt);
-    this.playerDepth += this.depthVelocity * dt;
-    this.playerDepth = THREE.MathUtils.clamp(this.playerDepth, minAllowedDepth, -0.38);
+      const targetDepthVel = diveY * 5.2;
+      this.depthVelocity = THREE.MathUtils.damp(this.depthVelocity, targetDepthVel, 6.5, dt);
+      this.playerDepth += this.depthVelocity * dt;
+      this.playerDepth = THREE.MathUtils.clamp(this.playerDepth, minAllowedDepth, -0.38);
 
-    this.callbacks.onStreamDepthChange({
-      playerDepthMeters: Number(Math.abs(this.playerDepth).toFixed(1)),
-      bedDepthMeters: Number(Math.abs(localBedY).toFixed(1)),
-      featureLabel,
-    });
+      this.callbacks.onStreamDepthChange({
+        playerDepthMeters: Number(Math.abs(this.playerDepth).toFixed(1)),
+        bedDepthMeters: Number(Math.abs(localBedY).toFixed(1)),
+        featureLabel,
+      });
 
-    for (let i = 0; i < this.riverWorld.logObstacles.length; i++) {
-      const log = this.riverWorld.logObstacles[i];
-      if (Math.abs(this.playerDistance - log.distance) < log.length * 0.45) {
-        const dy = this.playerDepth - log.y;
-        const dx = this.playerLateral - log.lateralOffset;
-        const distFromLogCenter = Math.hypot(dx, dy);
+      for (let i = 0; i < this.riverWorld.logObstacles.length; i++) {
+        const log = this.riverWorld.logObstacles[i];
+        if (Math.abs(this.playerDistance - log.distance) < log.length * 0.45) {
+          const dy = this.playerDepth - log.y;
+          const dx = this.playerLateral - log.lateralOffset;
+          const distFromLogCenter = Math.hypot(dx, dy);
 
-        if (log.isHollow) {
-          if (distFromLogCenter > 1.3 && distFromLogCenter < 1.95) {
-            this.playerDepth = THREE.MathUtils.lerp(this.playerDepth, log.y, dt * 4);
-          }
-        } else {
-          if (Math.abs(dx) < log.length * 0.45 && Math.abs(dy) < log.radius + 0.45) {
-            this.playerDepth = Math.min(-0.45, log.y + log.radius + 0.48);
+          if (log.isHollow) {
+            if (distFromLogCenter > 1.3 && distFromLogCenter < 1.95) {
+              this.playerDepth = THREE.MathUtils.lerp(this.playerDepth, log.y, dt * 4);
+            }
+          } else {
+            if (Math.abs(dx) < log.length * 0.45 && Math.abs(dy) < log.radius + 0.45) {
+              this.playerDepth = Math.min(-0.45, log.y + log.radius + 0.48);
+            }
           }
         }
       }
+
+      if (this.playerDepth >= -0.48 && diveY > 0 && Math.random() < 0.05) {
+        sound.playWaterHop();
+      }
+
+      const worldX = riverPos.x + normal.x * this.playerLateral;
+      const worldY = this.playerDepth;
+      const worldZ = riverPos.z + normal.z * this.playerLateral;
+
+      this.player.group.position.set(worldX, worldY, worldZ);
+
+      const velX = tangent.x * this.forwardSpeed + normal.x * this.lateralVelocity * 0.45;
+      const velZ = tangent.z * this.forwardSpeed + normal.z * this.lateralVelocity * 0.45;
+      this.player.group.rotation.y = Math.atan2(velX, velZ);
+
+      this.player.update(dt, this.forwardSpeed, steerX, diveY);
+
+      this.dirLight.position.set(worldX + 25, 48, worldZ + 15);
+      this.dirLight.target.position.set(worldX, worldY, worldZ);
+      this.dirLight.target.updateMatrixWorld();
+
+      const camOffsetDist = 6.2;
+      const camHeight = 3.1;
+      _vec3A.set(
+        worldX - tangent.x * camOffsetDist + normal.x * (steerX * 0.6),
+        Math.max(0.1, worldY + camHeight),
+        worldZ - tangent.z * camOffsetDist + normal.z * (steerX * 0.6)
+      );
+      this.camera.position.lerp(_vec3A, Math.min(1.0, dt * 5.2));
+
+      _vec3B.set(worldX + tangent.x * 4.8, worldY + 0.25, worldZ + tangent.z * 4.8);
+      this.camera.lookAt(_vec3B);
     }
-
-    if (this.playerDepth >= -0.48 && diveY > 0 && Math.random() < 0.05) {
-      sound.playWaterHop();
-    }
-
-    const worldX = riverPos.x + normal.x * this.playerLateral;
-    const worldY = this.playerDepth;
-    const worldZ = riverPos.z + normal.z * this.playerLateral;
-
-    this.player.group.position.set(worldX, worldY, worldZ);
-
-    const velX = tangent.x * this.forwardSpeed + normal.x * this.lateralVelocity * 0.45;
-    const velZ = tangent.z * this.forwardSpeed + normal.z * this.lateralVelocity * 0.45;
-    this.player.group.rotation.y = Math.atan2(velX, velZ);
-
-    this.player.update(dt, this.forwardSpeed, steerX, diveY);
-
-    this.dirLight.position.set(worldX + 25, 48, worldZ + 15);
-    this.dirLight.target.position.set(worldX, worldY, worldZ);
-    this.dirLight.target.updateMatrixWorld();
-
-    const camOffsetDist = 6.2;
-    const camHeight = 3.1;
-    _vec3A.set(
-      worldX - tangent.x * camOffsetDist + normal.x * (steerX * 0.6),
-      Math.max(0.1, worldY + camHeight),
-      worldZ - tangent.z * camOffsetDist + normal.z * (steerX * 0.6)
-    );
-    this.camera.position.lerp(_vec3A, Math.min(1.0, dt * 5.2));
-
-    _vec3B.set(worldX + tangent.x * 4.8, worldY + 0.25, worldZ + tangent.z * 4.8);
-    this.camera.lookAt(_vec3B);
 
     this.riverWorld.update(dt, this.playerDistance);
     this.updateRingsChestsAndFriends(dt, prevDistance);
+    this.updateBadGuys(dt, isBoosting, speedCfg.boost * 0.8);
 
     this.itemManager.updateAndCheckCollisions(
       dt,
@@ -928,7 +1020,74 @@ export class GameEngine {
     }
   }
 
+  /** Caimans and piranhas: a warning first, and getting caught only costs one snack. */
+  private updateBadGuys(dt: number, isBoosting: boolean, chaseSpeed: number) {
+    const events = this.badGuys.update(dt, this.player.group.position, isBoosting, chaseSpeed);
+    for (const ev of events) {
+      if (ev.type === 'warn') {
+        if (this.elapsedSeconds - this.lastBadGuyTip > 12) {
+          this.lastBadGuyTip = this.elapsedSeconds;
+          this.callbacks.onTipMessage(
+            ev.by === 'caiman' ? 'Shh! A caiman is sleeping. Swim around it!' : 'Grumpy piranhas! Zoom away!'
+          );
+        }
+      } else if (ev.type === 'caught') {
+        this.loseSnack(ev.by);
+      } else {
+        this.lastBadGuyTip = this.elapsedSeconds;
+        this.callbacks.onTipMessage(ev.by === 'caiman' ? 'Phew! Too slow, caiman!' : 'You got away!');
+        this.sparkles.burst(this.player.group.position, ['#ffffff', '#bff6ff'], 12, 2);
+      }
+    }
+  }
+
+  private loseSnack(by: 'caiman' | 'piranhas') {
+    this.tummy = Math.max(0, this.tummy - 15);
+    this.callbacks.onTummyChange(Math.round(this.tummy));
+    sound.playChomp();
+    this.lastBadGuyTip = this.elapsedSeconds;
+    if (by === 'caiman') {
+      this.callbacks.onTreasurePopup('Snap! It took a snack!', 0, '🐊');
+      narrator.say('Oh no! The caiman took a snack!', true);
+    } else {
+      this.callbacks.onTreasurePopup('Nibble! They took a snack!', 0, '🐟');
+      narrator.say('Oh no! The piranhas took a snack!', true);
+    }
+  }
+
+  /** Rainbow Whiskers, a sparkle-firework party with music, a family dance and the pearl. */
+  private celebrateRainbow() {
+    this.player.setRainbow(true);
+    this.riverWorld.startFamilyParty(7);
+    this.rainbowPartyTimer = 7;
+    this.fireworkTimer = 0;
+    sound.playRainbowParty();
+    this.meetFriend('rainbow', false);
+    this.counts.totalPoints += 100;
+    this.saveLocalProgress();
+    this.callbacks.onCountsChange({ ...this.counts });
+    this.callbacks.onTreasurePopup('Rainbow Pearl!', 100, '🌈');
+    narrator.say(`${cheer('You found the Rainbow Pearl')} Whiskers is rainbow colored!`, true);
+    this.sparkles.burst(this.player.group.position, RAINBOW_COLORS, 60, 5, 2);
+  }
+
+  private updateRainbowParty(dt: number) {
+    if (this.rainbowPartyTimer <= 0) return;
+    this.rainbowPartyTimer -= dt;
+    this.fireworkTimer -= dt;
+    if (this.fireworkTimer <= 0) {
+      this.fireworkTimer = 0.3;
+      const p = this.player.group.position;
+      _vec3B.set(p.x + (Math.random() - 0.5) * 16, 3 + Math.random() * 6, p.z + (Math.random() - 0.5) * 16);
+      this.sparkles.burst(_vec3B, RAINBOW_COLORS, 30, 5, 0.5);
+    }
+  }
+
   private updateRingsChestsAndFriends(dt: number, prevDistance: number) {
+    if (this.rainbow.checkReached(prevDistance, this.playerDistance, this.playerLateral)) {
+      this.celebrateRainbow();
+    }
+
     // Bubble rings: each one is a star; a whole trail is a "Perfect!" bonus.
     const ringEvents = this.ringManager.update(
       dt,
@@ -1027,7 +1186,7 @@ export class GameEngine {
       this.waterLook.uniforms.uSkyZenith.value.copy(this.sky.zenithColor);
       this.scene.background = new THREE.Color(chapter.fogColor);
       this.hemiLight.color.set(chapter.ambientLightColor);
-      this.sky.setRainbow(activeIdx === CHAPTERS.length - 1, forceUpdate);
+      this.rainbow.setVisible(activeIdx === CHAPTERS.length - 1, forceUpdate);
 
       if (!forceUpdate && activeIdx > prev) {
         sound.playMilestone();
@@ -1044,7 +1203,7 @@ export class GameEngine {
     this.meetFriend('family', false);
     // Finale: the family swims over and circles Whiskers while the camera slowly orbits.
     this.riverWorld.setFamilyFollow(this.player.group.position);
-    this.sky.setRainbow(true);
+    this.rainbow.setVisible(true);
     this.victoryTime = 0;
     const p = this.player.group.position;
     this.victoryOrbit = Math.atan2(this.camera.position.x - p.x, this.camera.position.z - p.z);
@@ -1070,6 +1229,8 @@ export class GameEngine {
     this.chestManager.dispose();
     this.forest.dispose();
     this.sparkles.dispose();
+    this.rainbow.dispose();
+    this.badGuys.dispose();
     this.sky.dispose();
     narrator.stop();
     this.renderer.dispose();

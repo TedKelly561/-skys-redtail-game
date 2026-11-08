@@ -17,7 +17,7 @@ import { DailyMissionsModal } from './components/DailyMissionsModal';
 import { StickerBook } from './components/StickerBook';
 import { sound } from './game/audio';
 import { narrator } from './game/voice';
-import { FRIENDS, FriendKind } from './game/friends';
+import { ANIMAL_FRIEND_COUNT, FriendKind, countAnimalFriends } from './game/friends';
 import { getPlayerName, hasBeenAskedForName, setPlayerName as storePlayerName } from './game/profile';
 import {
   initAuth,
@@ -443,8 +443,8 @@ export default function App() {
           playerName={playerName}
           askForName={askForName}
           onSetName={handleSetName}
-          friendsMet={metFriends.length}
-          friendsTotal={FRIENDS.length}
+          friendsMet={countAnimalFriends(metFriends)}
+          friendsTotal={ANIMAL_FRIEND_COUNT}
           onOpenFriends={openFriends}
         />
       )}
@@ -466,8 +466,8 @@ export default function App() {
           onVirtualSteer={handleVirtualSteer}
           dailyMissions={dailyMissions}
           onOpenDailyMissions={openDailyMissions}
-          friendsMet={metFriends.length}
-          friendsTotal={FRIENDS.length}
+          friendsMet={countAnimalFriends(metFriends)}
+          friendsTotal={ANIMAL_FRIEND_COUNT}
           friendNearby={friendNearby}
           onOpenFriends={openFriends}
         />

@@ -14,9 +14,6 @@ export class Sky {
     uSunDir: { value: new THREE.Vector3(0.45, 0.8, 0.3).normalize() },
   };
   private clouds: THREE.Mesh;
-  private rainbow: THREE.Mesh;
-  private rainbowMat: THREE.ShaderMaterial;
-  private rainbowTarget = 0;
   private disposables: { dispose: () => void }[] = [];
 
   constructor(scene: THREE.Scene, sunDir: THREE.Vector3) {
@@ -99,56 +96,9 @@ export class Sky {
     this.group.add(this.clouds);
     this.disposables.push(cloudGeo, cloudMat);
 
-    // Rainbow arching over the Grand Lake (shown once Whiskers reaches the lake).
-    const inner = 70;
-    const outer = 82;
-    const rainbowGeo = new THREE.RingGeometry(inner, outer, 96, 1, 0, Math.PI);
-    this.rainbowMat = new THREE.ShaderMaterial({
-      uniforms: { uOpacity: { value: 0 }, uInner: { value: inner }, uOuter: { value: outer } },
-      transparent: true,
-      depthWrite: false,
-      fog: false,
-      toneMapped: false,
-      side: THREE.DoubleSide,
-      vertexShader: /* glsl */ `
-        varying vec2 vPos;
-        void main() {
-          vPos = position.xy;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: /* glsl */ `
-        uniform float uOpacity;
-        uniform float uInner;
-        uniform float uOuter;
-        varying vec2 vPos;
-        void main() {
-          float t = clamp((length(vPos) - uInner) / (uOuter - uInner), 0.0, 1.0);
-          // Violet (inside) to red (outside).
-          vec3 c = 0.5 + 0.5 * cos(6.28318 * (vec3(0.0, 0.33, 0.67) - t * 0.83 + 0.83));
-          float edge = smoothstep(0.0, 0.12, t) * smoothstep(1.0, 0.88, t);
-          float ground = smoothstep(-2.0, 12.0, vPos.y);
-          gl_FragColor = vec4(c, edge * ground * uOpacity * 0.55);
-          #include <colorspace_fragment>
-        }
-      `,
-    });
-    this.rainbow = new THREE.Mesh(rainbowGeo, this.rainbowMat);
-    this.rainbow.position.set(0, -14, -165);
-    this.rainbow.renderOrder = -1;
-    this.rainbow.frustumCulled = false;
-    this.rainbow.visible = false;
-    this.group.add(this.rainbow);
-    this.disposables.push(rainbowGeo, this.rainbowMat);
-
     scene.add(this.group);
   }
 
-  /** Fade the lake rainbow in or out. */
-  public setRainbow(on: boolean, instant = false) {
-    this.rainbowTarget = on ? 1 : 0;
-    if (instant) this.rainbowMat.uniforms.uOpacity.value = this.rainbowTarget;
-  }
 
   /** Horizon matches the chapter's fog color; the top of the sky is a deeper blue. */
   public setColors(horizon: THREE.ColorRepresentation) {
@@ -163,9 +113,6 @@ export class Sky {
   public update(dt: number, cameraPos: THREE.Vector3) {
     this.group.position.copy(cameraPos);
     this.clouds.rotation.y += dt * 0.004;
-    const u = this.rainbowMat.uniforms.uOpacity;
-    u.value = THREE.MathUtils.damp(u.value, this.rainbowTarget, 0.8, dt);
-    this.rainbow.visible = u.value > 0.01;
   }
 
   public dispose() {

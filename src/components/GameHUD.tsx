@@ -292,9 +292,11 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             <span className="mt-1 text-2xl sm:text-3xl font-black text-white drop-shadow-[0_3px_0_rgba(0,0,0,0.5)]">
               {treasurePopup.label}
             </span>
-            <span className="text-base font-black text-amber-300 drop-shadow-[0_2px_0_rgba(0,0,0,0.6)]">
-              +{treasurePopup.points}
-            </span>
+            {treasurePopup.points > 0 && (
+              <span className="text-base font-black text-amber-300 drop-shadow-[0_2px_0_rgba(0,0,0,0.6)]">
+                +{treasurePopup.points}
+              </span>
+            )}
           </div>
         )}
       </div>

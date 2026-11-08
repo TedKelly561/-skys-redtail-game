@@ -11,13 +11,16 @@ export type FriendKind =
   | 'dragonfly'
   | 'capybara'
   | 'dolphin'
-  | 'family';
+  | 'family'
+  | 'rainbow';
 
 export interface FriendInfo {
   kind: FriendKind;
   name: string;
   /** Where to look, shown under an unmet friend's silhouette. */
   hint: string;
+  /** A special treasure card rather than an animal friend. */
+  special?: boolean;
 }
 
 export const FRIENDS: FriendInfo[] = [
@@ -28,7 +31,14 @@ export const FRIENDS: FriendInfo[] = [
   { kind: 'capybara', name: 'Capybara', hint: 'Resting on the riverbank' },
   { kind: 'dolphin', name: 'Pink Dolphin', hint: 'Jumping near the end' },
   { kind: 'family', name: 'Catfish Family', hint: 'Waiting at the Grand Lake' },
+  { kind: 'rainbow', name: 'Rainbow Pearl', hint: 'Under the rainbow at the Grand Lake', special: true },
 ];
+
+/** Animal friends only (not special treasures). */
+export const ANIMAL_FRIEND_COUNT = FRIENDS.filter((f) => !f.special).length;
+export function countAnimalFriends(met: FriendKind[]): number {
+  return met.filter((k) => !FRIENDS.find((f) => f.kind === k)?.special).length;
+}
 
 export interface FriendSpot {
   kind: FriendKind;
@@ -116,6 +126,7 @@ export function renderFriendStickers(spots: FriendSpot[]): Partial<Record<Friend
       const spot = spots.find((s) => s.kind === info.kind);
       if (!spot) continue;
       const model = spot.object.clone(true);
+      model.visible = true; // e.g. the Rainbow Pearl hides itself once collected
       model.position.set(0, 0, 0);
       model.rotation.set(0, info.kind === 'tetras' ? Math.PI / 2 : 0, 0);
       model.updateMatrixWorld(true);
