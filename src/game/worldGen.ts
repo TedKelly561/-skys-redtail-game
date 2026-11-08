@@ -118,6 +118,8 @@ export interface LogObstacle {
   length: number;
   isHollow: boolean;
   position: THREE.Vector3;
+  /** Yaw of the log group (solid logs lie across the river along their local X axis). */
+  rotationY: number;
 }
 
 /**
@@ -1183,6 +1185,7 @@ export class RiverWorld {
           length: 7.8,
           isHollow: true,
           position: worldPos,
+          rotationY: logGroup.rotation.y,
         });
       } else {
         const branchGeo = new THREE.CylinderGeometry(0.58, 0.82, 8.8, 20);
@@ -1215,6 +1218,7 @@ export class RiverWorld {
           length: 8.8,
           isHollow: false,
           position: worldPos,
+          rotationY: logGroup.rotation.y,
         });
       }
     }

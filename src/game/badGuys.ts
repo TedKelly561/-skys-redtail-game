@@ -10,7 +10,8 @@ import { mergeStaticMeshes } from './perf';
  * - Grumpy piranhas guard a spot. Swim close and they chase for a few seconds; zoom away.
  */
 export type BadGuyEvent =
-  | { type: 'caught'; by: 'caiman' | 'piranhas' }
+  | { type: 'caught'; by: 'caiman' | 'piranhas'; at?: THREE.Vector3 }
+  | { type: 'bump'; by: 'caiman'; at: THREE.Vector3 }
   | { type: 'warn'; by: 'caiman' | 'piranhas' }
   | { type: 'escaped'; by: 'caiman' | 'piranhas' };
 
@@ -26,6 +27,7 @@ interface Caiman {
   phase: number;
   warned: boolean;
   caughtThisSnap: boolean;
+  bumpCooldown: number;
 }
 
 interface PiranhaSchool {
@@ -166,7 +168,7 @@ export class BadGuys {
       g.position.set(position.x + normal.x * lateral, -0.12, position.z + normal.z * lateral);
       g.rotation.y = Math.atan2(tangent.x, tangent.z) + (i % 2 === 0 ? 1.1 : -1.1);
       this.caimanGroup.add(g);
-      this.caimans.push({ group: g, jaw, tail, lids, pupils, zzz, state: 'sleep', timer: 0, phase: i, warned: false, caughtThisSnap: false });
+      this.caimans.push({ group: g, jaw, tail, lids, pupils, zzz, state: 'sleep', timer: 0, phase: i, warned: false, caughtThisSnap: false, bumpCooldown: 0 });
     });
   }
 
@@ -272,6 +274,20 @@ export class BadGuys {
       const near = Math.min(headDist, bodyDist);
       const deep = player.y < -3.4; // swimming deep sneaks underneath
 
+      // Solid body: touching it (snout to tail) bumps Whiskers away.
+      c.bumpCooldown = Math.max(0, c.bumpCooldown - dt);
+      if (!deep && c.bumpCooldown <= 0) {
+        const ax = Math.sin(g.rotation.y);
+        const az = Math.cos(g.rotation.y);
+        const t = THREE.MathUtils.clamp(-dx * ax + -dz * az, -1.9, 3.0);
+        const cx = g.position.x + ax * t;
+        const cz = g.position.z + az * t;
+        if (Math.hypot(player.x - cx, player.z - cz) < 1.35) {
+          c.bumpCooldown = 1;
+          events.push({ type: 'bump', by: 'caiman', at: new THREE.Vector3(cx, player.y, cz) });
+        }
+      }
+
       if (c.state === 'sleep') {
         c.tail.rotation.y = Math.sin(c.phase * 0.8) * 0.12;
         g.position.y = -0.12 + Math.sin(c.phase * 0.9) * 0.03;
@@ -357,7 +373,7 @@ export class BadGuys {
         g.position.z += (dz / d) * step;
         g.rotation.y = Math.atan2(dx, dz);
         if (d < 1.5) {
-          events.push({ type: 'caught', by: 'piranhas' });
+          events.push({ type: 'caught', by: 'piranhas', at: g.position.clone() });
           s.state = 'flee';
           s.timer = 0;
           s.cooldown = 14;
