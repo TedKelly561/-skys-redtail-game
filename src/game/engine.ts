@@ -18,6 +18,9 @@ import { Sky } from './sky';
 import { Sparkles } from './sparkles';
 import { RainbowGoal } from './rainbow';
 import { BadGuys } from './badGuys';
+import { Fireflies } from './fireflies';
+import { DolphinRace, HideAndSeek, RaceProgress } from './minigames';
+import { FIN_COLORS, Outfit, buildAccessory, loadCloset } from './closet';
 import { WaterLook, addCaustics, createShorelineFoam, createWaterLook } from './water';
 import { AdaptiveResolution, DistanceStreamer, downgradePhysicalMaterials } from './perf';
 import { ChestManager } from './chests';
@@ -39,6 +42,8 @@ import {
 
 const _vec3A = new THREE.Vector3();
 
+const NIGHT_FOG = new THREE.Color('#5b4f8f');
+const NIGHT_WATER = new THREE.Color('#1d3f6e');
 const RAINBOW_COLORS = ['#ff4d4d', '#ff9f1a', '#ffe14d', '#4dff88', '#4dc3ff', '#9b6bff', '#ff6bd6'];
 const CONFETTI = ['#ff4d8d', '#ffd23f', '#4de3ff', '#7dff6b', '#c58bff', '#ffffff'];
 const SPARKLE_COLORS: Record<string, string[]> = {
@@ -88,6 +93,15 @@ export interface GameCallbacks {
   onFriendsChange: (met: FriendKind[]) => void;
   /** An animal not met yet is close enough to sniff (or null when none is). */
   onNearbyFriendChange: (kind: FriendKind | null) => void;
+  onMiniGameChange: (info: MiniGameInfo) => void;
+}
+
+export interface MiniGameInfo {
+  /** Free swimming in the lake and no game running: offer hide-and-seek. */
+  canHideSeek: boolean;
+  hideSeekActive: boolean;
+  /** Both racers' progress (0..1) while the dolphin race is on. */
+  race: RaceProgress | null;
 }
 
 export class GameEngine {
@@ -114,6 +128,15 @@ export class GameEngine {
   private rainbow: RainbowGoal;
   private badGuys: BadGuys;
   private lastBadGuyTip: number = -999;
+  /** Dress-up shop is open: the title camera moves in close on Whiskers. */
+  public showcase: boolean = false;
+  /** Evening mode: sunset sky, stars, moon and fireflies over the whole river. */
+  public night: boolean = false;
+  private fireflies!: Fireflies;
+  private race!: DolphinRace;
+  private hideSeek = new HideAndSeek();
+  private hideSeekInviteTimer = 0;
+  private lastMiniKey = '';
   private rainbowPartyTimer: number = 0;
   private fireworkTimer: number = 0;
   private victoryTime: number = 0;
@@ -275,6 +298,13 @@ export class GameEngine {
     this.sparkles = new Sparkles(this.scene);
     this.rainbow = new RainbowGoal(this.scene);
     this.badGuys = new BadGuys(this.scene);
+    this.fireflies = new Fireflies(this.scene);
+    this.race = new DolphinRace(this.scene, this.riverWorld.dolphins[0]);
+    try {
+      this.night = localStorage.getItem('whiskers_night') === 'true';
+    } catch {
+      // ignore
+    }
     this.sky.setColors(CHAPTERS[0].fogColor);
 
     // Realistic water surface, caustic light on the riverbed and shoreline foam.
@@ -303,6 +333,9 @@ export class GameEngine {
     this.streamer.addChildrenOf(this.chestManager.group, 170);
     this.streamer.addChildrenOf(this.badGuys.caimanGroup, 140);
     this.streamer.addChildrenOf(this.badGuys.piranhaGroup, 140);
+    this.streamer.addChildrenOf(this.race.group, 170);
+    this.applyOutfit(loadCloset().outfit);
+    this.applyChapterLook(CHAPTERS[0], 0);
     this.adaptiveResolution = new AdaptiveResolution(
       this.renderer,
       this.isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2)
@@ -457,6 +490,10 @@ export class GameEngine {
     this.player.setRainbow(false);
     this.rainbow.reset();
     this.badGuys.reset();
+    this.race.reset();
+    this.hideSeek.stop(this.riverWorld);
+    this.hideSeekInviteTimer = 0;
+    this.emitMiniGame(null);
     this.rainbowPartyTimer = 0;
     this.gameState = 'playing';
     this.callbacks.onStateChange('playing');
@@ -526,11 +563,17 @@ export class GameEngine {
     this.gameState = 'playing';
     this.callbacks.onStateChange('playing');
     this.callbacks.onTipMessage('Swim anywhere! Turn left and right to explore.');
+    this.hideSeekInviteTimer = 7;
+    this.emitMiniGame(null);
   }
 
   public triggerSonarPulse() {
     if (this.gameState !== 'playing') return;
     this.tryMeetNearbyFriend();
+    if (this.hideSeek.active) {
+      this.hideSeek.showDirection(this.player.group.position, this.sparkles);
+      narrator.say('Pip is that way!', true);
+    }
     if (this.sniffCooldownTimer > 0) return;
     this.sniffActiveTimer = this.SNIFF_DURATION;
     this.sniffCooldownTimer = this.SNIFF_COOLDOWN;
@@ -539,6 +582,15 @@ export class GameEngine {
     sound.playBarbelSense();
     const res = this.dailyMissionsManager.recordEvent(['use_sonar'], 1);
     this.handleDailyMissionResult(res);
+  }
+
+  /** Dress Whiskers in the hat, glasses and fin color from the closet. */
+  public applyOutfit(outfit: Outfit) {
+    this.player.setAccessory('hat', outfit.hat ? buildAccessory(outfit.hat) : null);
+    this.player.setAccessory('glasses', outfit.glasses ? buildAccessory(outfit.glasses) : null);
+    this.player.setFinColor(
+      outfit.color === 'rainbow-fins' ? 'rainbow' : outfit.color ? FIN_COLORS[outfit.color] ?? null : null
+    );
   }
 
   /** Pictures of each friend drawn from their in-game models, for the sticker book. */
@@ -638,6 +690,11 @@ export class GameEngine {
       this.adaptiveResolution.update(rawDt);
       this.sky.update(dt, this.camera.position);
       this.rainbow.update(dt);
+      this.fireflies.update(
+        dt,
+        this.player.group.position,
+        this.renderer.domElement.height / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)))
+      );
       this.updateRainbowParty(dt);
       this.sparkles.update(
         dt,
@@ -749,12 +806,21 @@ export class GameEngine {
     this.player.update(dt, 1.4, Math.sin(time * 0.7) * 0.25, 0);
 
     const camAngle = time * 0.22;
-    this.camera.position.set(
-      position.x + Math.sin(camAngle) * 7.2,
-      0.5 + Math.sin(time * 0.4) * 0.35,
-      position.z + Math.cos(camAngle) * 7.2
-    );
-    this.camera.lookAt(this.player.group.position);
+    const p = this.player.group.position;
+    if (this.showcase) {
+      // Dress-up: close, slowly circling, with Whiskers in the upper part of the screen
+      // (the shop panel covers the bottom).
+      _vec3A.set(p.x + Math.sin(camAngle) * 3.6, p.y + 0.9, p.z + Math.cos(camAngle) * 3.6);
+      this.camera.position.lerp(_vec3A, Math.min(1, dt * 3));
+      this.camera.lookAt(p.x, p.y - 0.75, p.z);
+    } else {
+      this.camera.position.set(
+        position.x + Math.sin(camAngle) * 7.2,
+        0.5 + Math.sin(time * 0.4) * 0.35,
+        position.z + Math.cos(camAngle) * 7.2
+      );
+      this.camera.lookAt(p);
+    }
 
     this.riverWorld.update(dt, dist);
   }
@@ -949,6 +1015,7 @@ export class GameEngine {
     this.riverWorld.update(dt, this.playerDistance);
     this.updateRingsChestsAndFriends(dt, prevDistance);
     this.updateBadGuys(dt, isBoosting, speedCfg.boost * 0.8);
+    this.updateMiniGames(dt, prevDistance, (speedCfg.max + speedCfg.boost) / 2);
 
     this.itemManager.updateAndCheckCollisions(
       dt,
@@ -1087,6 +1154,76 @@ export class GameEngine {
         return;
       }
     }
+  }
+
+  /** Hide-and-seek with Pip (Grand Lake free swim). */
+  public startHideAndSeek() {
+    if (!this.isFreeSwim || this.hideSeek.active) return;
+    if (this.hideSeek.start(this.riverWorld, this.player.group.position)) {
+      this.hideSeekInviteTimer = 0;
+      this.callbacks.onTipMessage('Pip is hiding! Find him! Sniff shows the way.');
+      sound.playMilestone();
+      this.emitMiniGame(null);
+    }
+  }
+
+  private emitMiniGame(race: RaceProgress | null) {
+    const info: MiniGameInfo = {
+      canHideSeek: this.isFreeSwim && !this.hideSeek.active,
+      hideSeekActive: this.hideSeek.active,
+      race: race ? { whiskers: Math.round(race.whiskers * 50) / 50, dolphin: Math.round(race.dolphin * 50) / 50 } : null,
+    };
+    const key = JSON.stringify(info);
+    if (key !== this.lastMiniKey) {
+      this.lastMiniKey = key;
+      this.callbacks.onMiniGameChange(info);
+    }
+  }
+
+  private rewardStars(stars: number, points: number) {
+    this.counts.stars += stars;
+    this.counts.totalPoints += points;
+    this.saveLocalProgress();
+    this.callbacks.onCountsChange({ ...this.counts });
+  }
+
+  private updateMiniGames(dt: number, prevDistance: number, dolphinSpeed: number) {
+    const r = this.race.update(dt, prevDistance, this.playerDistance, this.playerLateral, dolphinSpeed);
+    if (r.event === 'start') {
+      this.callbacks.onTipMessage('Race the dolphin to the checkered flags! Zoom!');
+      sound.playMilestone();
+      narrator.say('Ready, set, go! Race the dolphin!', true);
+    } else if (r.event === 'win') {
+      this.rewardStars(10, 50);
+      sound.playMissionComplete();
+      this.callbacks.onTreasurePopup('You won the race!', 10, '🏆');
+      narrator.say(cheer('You won the race'), true);
+      this.sparkles.burst(this.player.group.position, RAINBOW_COLORS, 50, 4.5, 1.5);
+    } else if (r.event === 'lose') {
+      this.rewardStars(2, 10);
+      this.callbacks.onTreasurePopup('The dolphin won! Great try!', 2, '🐬');
+      narrator.say('The dolphin won! Great try!', true);
+    }
+
+    if (this.isFreeSwim) {
+      const ev = this.hideSeek.update(dt, this.riverWorld, this.player.group.position, this.sparkles);
+      if (ev === 'near') {
+        this.callbacks.onTipMessage("You're getting close!");
+      } else if (ev === 'found') {
+        this.rewardStars(5, 25);
+        sound.playMissionComplete();
+        this.callbacks.onTreasurePopup('You found Pip!', 5, '🙈');
+        narrator.say(cheer('You found Pip'), true);
+        this.sparkles.burst(this.player.group.position, CONFETTI, 40, 4, 1.5);
+      }
+      if (!this.hideSeek.active && this.hideSeekInviteTimer > 0) {
+        this.hideSeekInviteTimer -= dt;
+        if (this.hideSeekInviteTimer <= 0) {
+          this.callbacks.onTipMessage('Pip wants to play hide-and-seek! Tap 🙈');
+        }
+      }
+    }
+    this.emitMiniGame(r.progress);
   }
 
   /** Caimans and piranhas: a warning first, and getting caught only costs one snack. */
@@ -1253,14 +1390,7 @@ export class GameEngine {
       this.highestChapterReached = Math.max(this.highestChapterReached, chapter.id);
       this.callbacks.onChapterChange(chapter);
 
-      this.scene.fog = new THREE.FogExp2(chapter.fogColor, activeIdx === 4 ? 0.006 : 0.008);
-      this.waterLook.uniforms.uWaterColor.value.set(chapter.waterColor);
-      this.waterLook.uniforms.uDeepColor.value.set(chapter.waterColor).multiplyScalar(0.45);
-      this.waterLook.uniforms.uSkyHorizon.value.set(chapter.fogColor);
-      this.sky.setColors(chapter.fogColor);
-      this.waterLook.uniforms.uSkyZenith.value.copy(this.sky.zenithColor);
-      this.scene.background = new THREE.Color(chapter.fogColor);
-      this.hemiLight.color.set(chapter.ambientLightColor);
+      this.applyChapterLook(chapter, activeIdx);
       this.rainbow.setVisible(activeIdx === CHAPTERS.length - 1, forceUpdate);
 
       if (!forceUpdate && activeIdx > prev) {
@@ -1268,6 +1398,40 @@ export class GameEngine {
         this.callbacks.onTipMessage(`${chapter.name}!`);
       }
     }
+  }
+
+  /** Fog, sky, water and light colors for a chapter, by day or by night. */
+  private applyChapterLook(chapter: RiverChapterInfo, idx: number) {
+    const night = this.night;
+    const fog = new THREE.Color(chapter.fogColor);
+    if (night) fog.lerp(NIGHT_FOG, 0.82);
+    this.scene.fog = new THREE.FogExp2(fog, idx === 4 ? 0.006 : 0.008);
+    this.scene.background = fog.clone();
+    this.sky.setColors(fog, night);
+    const water = new THREE.Color(chapter.waterColor);
+    if (night) water.lerp(NIGHT_WATER, 0.5);
+    this.waterLook.uniforms.uWaterColor.value.copy(water);
+    this.waterLook.uniforms.uDeepColor.value.copy(water).multiplyScalar(0.45);
+    this.waterLook.uniforms.uSkyHorizon.value.copy(fog);
+    this.waterLook.uniforms.uSkyZenith.value.copy(this.sky.zenithColor);
+    this.hemiLight.color.set(night ? '#b3a8ff' : chapter.ambientLightColor);
+    this.hemiLight.groundColor.set(night ? '#3d3466' : '#5c8065');
+    this.hemiLight.intensity = night ? 1.15 : 1.7;
+    this.dirLight.color.set(night ? '#ffb08a' : '#fff9e6');
+    this.dirLight.intensity = night ? 1.3 : 2.2;
+    this.scene.environmentIntensity = night ? 0.18 : 0.3;
+    this.fireflies.setVisible(night);
+  }
+
+  /** Switch between day and the sunset/firefly night. */
+  public setNight(on: boolean) {
+    this.night = on;
+    try {
+      localStorage.setItem('whiskers_night', String(on));
+    } catch {
+      // ignore
+    }
+    this.applyChapterLook(CHAPTERS[this.currentChapterIndex], this.currentChapterIndex);
   }
 
   private triggerGrandLakeCelebration() {
@@ -1306,6 +1470,8 @@ export class GameEngine {
     this.sparkles.dispose();
     this.rainbow.dispose();
     this.badGuys.dispose();
+    this.fireflies.dispose();
+    this.race.dispose();
     this.sky.dispose();
     narrator.stop();
     this.renderer.dispose();
