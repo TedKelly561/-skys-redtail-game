@@ -452,6 +452,8 @@ export class RiverWorld {
   /** Every animal Whiskers can sniff to say hi (see friends.ts). */
   public friendSpots: FriendSpot[] = [];
   private familyFollow: THREE.Vector3 | null = null;
+  /** Family members told to stay put somewhere (e.g. Pip hiding), by index. */
+  private familyHiding = new Map<number, THREE.Vector3>();
   private familyParty = 0;
   private partyTime = 0;
   public logObstacles: LogObstacle[] = [];
@@ -1915,6 +1917,26 @@ export class RiverWorld {
     this.familyFollow = target;
   }
 
+  /** Index of Pip, the little brother (the smallest family member). */
+  public get pipIndex(): number {
+    return this.grandLakeCatfish.findIndex((c) => c.name.startsWith('Pip'));
+  }
+
+  public pipPosition(): THREE.Vector3 | null {
+    const i = this.pipIndex;
+    return i >= 0 ? this.grandLakeCatfish[i].character.group.position : null;
+  }
+
+  /** Send a family member to hide at `spot`, or call them back with null. */
+  public setFamilyHiding(index: number, spot: THREE.Vector3 | null) {
+    if (spot) {
+      this.familyHiding.set(index, spot.clone());
+      this.grandLakeCatfish[index]?.character.group.position.copy(spot);
+    } else {
+      this.familyHiding.delete(index);
+    }
+  }
+
   /** The family hops and spins around Whiskers for a few seconds (rainbow party). */
   public startFamilyParty(seconds: number) {
     this.familyParty = seconds;
@@ -2036,6 +2058,15 @@ export class RiverWorld {
     }
     this.grandLakeCatfish.forEach((cat, idx) => {
       const g = cat.character.group;
+      const hideAt = this.familyHiding.get(idx);
+      if (hideAt) {
+        // Hiding: wiggle in place, slowly turning, with only small movements.
+        cat.phase += dt;
+        g.position.set(hideAt.x + Math.sin(cat.phase * 0.7) * 0.4, hideAt.y + Math.sin(cat.phase * 1.3) * 0.1, hideAt.z);
+        g.rotation.y += dt * 0.25;
+        cat.character.update(dt, 0.8, 0.2, 0);
+        return;
+      }
       if (this.familyFollow) {
         // Swim in close, playful circles around Whiskers.
         const t = this.familyFollow;

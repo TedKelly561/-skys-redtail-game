@@ -5,7 +5,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { User } from 'firebase/auth';
-import { GameEngine, GameState, PaceMode, TreasureCounts } from './game/engine';
+import { GameEngine, GameState, MiniGameInfo, PaceMode, TreasureCounts } from './game/engine';
 import { CHAPTERS, RiverChapterInfo } from './game/worldGen';
 import { DailyMissionsState, DailyMissionsManager } from './game/dailyMissions';
 import { TitleScreen } from './components/TitleScreen';
@@ -15,6 +15,8 @@ import { GrandLakeVictory } from './components/GrandLakeVictory';
 import { GrownUpsModal } from './components/GrownUpsModal';
 import { DailyMissionsModal } from './components/DailyMissionsModal';
 import { StickerBook } from './components/StickerBook';
+import { DressUpShop } from './components/DressUpShop';
+import { ClosetItem, ClosetSlot, ClosetState, loadCloset, saveCloset } from './game/closet';
 import { sound } from './game/audio';
 import { narrator } from './game/voice';
 import { ANIMAL_FRIEND_COUNT, FriendKind, countAnimalFriends } from './game/friends';
@@ -64,6 +66,20 @@ export default function App() {
   const [metFriends, setMetFriends] = useState<FriendKind[]>([]);
   const [friendNearby, setFriendNearby] = useState<boolean>(false);
   const [isFriendsOpen, setIsFriendsOpen] = useState<boolean>(false);
+  // Dress-up shop: stars to spend = lifetime stars - stars spent.
+  const [closet, setCloset] = useState<ClosetState>(() => loadCloset());
+  const [tryingOn, setTryingOn] = useState<ClosetItem | null>(null);
+  const [isShopOpen, setIsShopOpen] = useState<boolean>(false);
+  const [miniGame, setMiniGame] = useState<MiniGameInfo>({ canHideSeek: false, hideSeekActive: false, race: null });
+  const [isNight, setIsNight] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('whiskers_night') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const wallet = Math.max(0, counts.stars - closet.spent);
+  const shownCounts = { ...counts, stars: wallet };
   const [stickers, setStickers] = useState<Partial<Record<FriendKind, string>>>({});
 
   // Google sign-in & cloud save state
@@ -186,6 +202,7 @@ export default function App() {
       onSniffReadyChange: (ready) => setSniffReady(ready),
       onFriendsChange: (met) => setMetFriends(met),
       onNearbyFriendChange: (kind) => setFriendNearby(kind !== null),
+      onMiniGameChange: (info) => setMiniGame(info),
       onChapterChange: (chap) => setCurrentChapter(chap),
       onStateChange: (state) => setGameState(state),
       onTimeChange: (sec) => setElapsedSeconds(sec),
@@ -218,11 +235,12 @@ export default function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (isTyping(e)) return;
       const engine = engineRef.current;
-      if (!engine || isGrownUpsOpen || isDailyMissionsOpen || isFriendsOpen) {
+      if (!engine || isGrownUpsOpen || isDailyMissionsOpen || isFriendsOpen || isShopOpen) {
         if (e.code === 'Escape') {
           setIsDailyMissionsOpen(false);
           setIsGrownUpsOpen(false);
           setIsFriendsOpen(false);
+          closeShop();
         }
         return;
       }
@@ -296,7 +314,7 @@ export default function App() {
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleWindowBlur);
     };
-  }, [gameState, isGrownUpsOpen, isDailyMissionsOpen, isFriendsOpen]);
+  }, [gameState, isGrownUpsOpen, isDailyMissionsOpen, isFriendsOpen, isShopOpen]);
 
   const handleLogin = async () => {
     setIsLoggingIn(true);
@@ -339,6 +357,53 @@ export default function App() {
   };
 
   // The sticker book draws each friend from its 3D model the first time it opens.
+  // Show the outfit (or the item being tried on) on Whiskers.
+  useEffect(() => {
+    const outfit = tryingOn ? { ...closet.outfit, [tryingOn.slot]: tryingOn.id } : closet.outfit;
+    engineRef.current?.applyOutfit(outfit);
+  }, [closet, tryingOn]);
+
+  const toggleNight = () => {
+    const next = !isNight;
+    setIsNight(next);
+    engineRef.current?.setNight(next);
+    narrator.say(next ? 'Night time! Look for the fireflies!' : 'Good morning, Whiskers!', true);
+  };
+
+  const openShop = () => {
+    const engine = engineRef.current;
+    if (engine?.gameState === 'playing') engine.pauseGame();
+    if (engine) engine.showcase = true;
+    setIsShopOpen(true);
+  };
+
+  function closeShop() {
+    setTryingOn(null);
+    if (engineRef.current) engineRef.current.showcase = false;
+    setIsShopOpen(false);
+  }
+
+  const updateCloset = (next: ClosetState) => {
+    saveCloset(next);
+    setCloset(next);
+  };
+
+  const buyItem = (item: ClosetItem) => {
+    if (wallet < item.price || closet.owned.includes(item.id)) return;
+    updateCloset({
+      owned: [...closet.owned, item.id],
+      outfit: { ...closet.outfit, [item.slot]: item.id },
+      spent: closet.spent + item.price,
+    });
+    setTryingOn(null);
+    sound.playMissionComplete();
+    narrator.say(`You got the ${item.name}!`, true);
+  };
+
+  const equipItem = (slot: ClosetSlot, id: string | null) => {
+    updateCloset({ ...closet, outfit: { ...closet.outfit, [slot]: id } });
+  };
+
   const openFriends = () => {
     const engine = engineRef.current;
     if (engine?.gameState === 'playing') engine.pauseGame();
@@ -431,13 +496,16 @@ export default function App() {
       />
 
       {/* Title Screen Overlay */}
-      {gameState === 'title' && (
+      {gameState === 'title' && !isShopOpen && (
         <TitleScreen
           onStartGame={handleStartGame}
           isMuted={isMuted}
           onToggleMute={handleToggleMute}
-          counts={counts}
+          counts={shownCounts}
           onOpenGrownUps={() => setIsGrownUpsOpen(true)}
+          onOpenShop={openShop}
+          isNight={isNight}
+          onToggleNight={toggleNight}
           dailyMissions={dailyMissions}
           onOpenDailyMissions={openDailyMissions}
           playerName={playerName}
@@ -453,7 +521,7 @@ export default function App() {
       {(gameState === 'playing' || gameState === 'paused') && (
         <GameHUD
           tummy={tummy}
-          counts={counts}
+          counts={shownCounts}
           progressPercent={progressPercent}
           chapter={currentChapter}
           elapsedSeconds={elapsedSeconds}
@@ -470,11 +538,13 @@ export default function App() {
           friendsTotal={ANIMAL_FRIEND_COUNT}
           friendNearby={friendNearby}
           onOpenFriends={openFriends}
+          miniGame={miniGame}
+          onStartHideSeek={() => engineRef.current?.startHideAndSeek()}
         />
       )}
 
       {/* Pause Menu Modal */}
-      {gameState === 'paused' && (
+      {gameState === 'paused' && !isShopOpen && (
         <PauseMenu
           onResume={handleResume}
           onRestart={handleRestart}
@@ -483,13 +553,14 @@ export default function App() {
           isMuted={isMuted}
           onToggleMute={handleToggleMute}
           onOpenGrownUps={() => setIsGrownUpsOpen(true)}
+          onOpenShop={openShop}
         />
       )}
 
       {/* Grand Lake Victory Celebration Modal */}
       {gameState === 'victory' && (
         <GrandLakeVictory
-          counts={counts}
+          counts={shownCounts}
           playerName={playerName}
           onFreeSwim={handleFreeSwim}
           onRestart={handleRestart}
@@ -525,6 +596,18 @@ export default function App() {
         readAloud={readAloud}
         readAloudSupported={narrator.isSupported()}
         onSetReadAloud={handleSetReadAloud}
+      />
+
+      {/* Dress-up shop */}
+      <DressUpShop
+        isOpen={isShopOpen}
+        onClose={closeShop}
+        wallet={wallet}
+        closet={closet}
+        tryingOn={tryingOn}
+        onTryOn={setTryingOn}
+        onBuy={buyItem}
+        onEquip={equipItem}
       />
 
       {/* River friends sticker book */}

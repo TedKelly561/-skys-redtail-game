@@ -10,6 +10,7 @@ interface PauseMenuProps {
   isMuted: boolean;
   onToggleMute: () => void;
   onOpenGrownUps: () => void;
+  onOpenShop: () => void;
 }
 
 export const PauseMenu: React.FC<PauseMenuProps> = ({
@@ -20,6 +21,7 @@ export const PauseMenu: React.FC<PauseMenuProps> = ({
   isMuted,
   onToggleMute,
   onOpenGrownUps,
+  onOpenShop,
 }) => {
   const smallBtn =
     'flex-1 flex flex-col items-center justify-center gap-1 py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white text-sm font-bold transition active:scale-95 cursor-pointer';
@@ -35,6 +37,14 @@ export const PauseMenu: React.FC<PauseMenuProps> = ({
         >
           <Play className="w-7 h-7 fill-white" />
           <span>Keep swimming</span>
+        </button>
+
+        <button
+          onClick={onOpenShop}
+          className="w-full py-3 rounded-2xl bg-pink-500 hover:bg-pink-400 border-2 border-white/40 text-white text-lg font-black flex items-center justify-center gap-2 transition active:scale-95 cursor-pointer"
+        >
+          <span>👒</span>
+          <span>Dress up Whiskers</span>
         </button>
 
         <div>

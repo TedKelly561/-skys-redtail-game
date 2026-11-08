@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { Pause, Zap } from 'lucide-react';
 import { RiverChapterInfo } from '../game/worldGen';
-import { TreasureCounts } from '../game/engine';
+import { MiniGameInfo, TreasureCounts } from '../game/engine';
 import { DailyMissionsState } from '../game/dailyMissions';
 
 export interface TreasurePopupInfo {
@@ -31,6 +31,8 @@ interface GameHUDProps {
   /** A friend not met yet is close enough to sniff. */
   friendNearby: boolean;
   onOpenFriends: () => void;
+  miniGame: MiniGameInfo;
+  onStartHideSeek: () => void;
 }
 
 /** True on phones and tablets (any coarse pointer), so we show the thumb joystick. */
@@ -128,6 +130,8 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   friendsTotal,
   friendNearby,
   onOpenFriends,
+  miniGame,
+  onStartHideSeek,
 }) => {
   const isTouch = useIsTouchDevice();
   const sniffUsable = sniffReady || friendNearby;
@@ -272,6 +276,29 @@ export const GameHUD: React.FC<GameHUDProps> = ({
       {/* Journey progress (phones / small tablets) */}
       <div className="md:hidden w-full max-w-xs mx-auto mt-2 px-4">{progressBar}</div>
 
+      {/* Dolphin race: both racers heading for the checkered flag */}
+      {miniGame.race && (
+        <div className={`mt-2 mx-auto w-full max-w-sm px-3 py-2 rounded-2xl ${panel}`}>
+          <div className="relative h-14">
+            {[
+              { icon: '🐟', p: miniGame.race.whiskers, top: 'top-0', label: 'You' },
+              { icon: '🐬', p: miniGame.race.dolphin, top: 'top-7', label: '' },
+            ].map((r) => (
+              <div key={r.icon} className={`absolute inset-x-0 ${r.top} h-6`}>
+                <div className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-white/20" />
+                <span
+                  className="absolute top-1/2 text-2xl transition-all duration-150"
+                  style={{ left: `${r.p * 92}%`, transform: 'translateY(-50%) scaleX(-1)' }}
+                >
+                  {r.icon}
+                </span>
+              </div>
+            ))}
+            <span className="absolute right-0 top-1/2 -translate-y-1/2 text-3xl">🏁</span>
+          </div>
+        </div>
+      )}
+
       {/* Short tip under the top bar */}
       <div className="w-full flex justify-center mt-3 min-h-[2.5rem]">
         {tipMessage && (
@@ -316,6 +343,22 @@ export const GameHUD: React.FC<GameHUDProps> = ({
         )}
 
         <div className="flex items-end gap-3">
+          {(miniGame.canHideSeek || miniGame.hideSeekActive) && (
+            <button
+              type="button"
+              onClick={onStartHideSeek}
+              disabled={miniGame.hideSeekActive}
+              className={`pointer-events-auto no-callout self-center px-3 py-2 rounded-2xl border-4 text-sm font-black shadow-xl transition active:scale-95 cursor-pointer ${
+                miniGame.hideSeekActive
+                  ? 'bg-sky-100 border-sky-300 text-sky-800'
+                  : 'bg-gradient-to-b from-sky-300 to-sky-500 border-white/80 text-white animate-pulse'
+              }`}
+              aria-label={miniGame.hideSeekActive ? 'Find Pip' : 'Play hide and seek'}
+            >
+              <span className="text-xl mr-1">{miniGame.hideSeekActive ? '🔍' : '🙈'}</span>
+              {miniGame.hideSeekActive ? 'Find Pip!' : 'Hide & seek'}
+            </button>
+          )}
           <button
             type="button"
             onPointerDown={() => onTriggerSonar()}

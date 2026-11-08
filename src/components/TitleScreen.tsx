@@ -12,6 +12,9 @@ interface TitleScreenProps {
   onToggleMute: () => void;
   counts: TreasureCounts;
   onOpenGrownUps: () => void;
+  onOpenShop: () => void;
+  isNight: boolean;
+  onToggleNight: () => void;
   dailyMissions: DailyMissionsState;
   onOpenDailyMissions: () => void;
   playerName: string;
@@ -99,6 +102,9 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   onToggleMute,
   counts,
   onOpenGrownUps,
+  onOpenShop,
+  isNight,
+  onToggleNight,
   dailyMissions,
   onOpenDailyMissions,
   playerName,
@@ -134,6 +140,14 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
         </button>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={onToggleNight}
+            className={`${pill} px-3 text-xl`}
+            aria-label={isNight ? 'Switch to daytime' : 'Switch to night time'}
+            title={isNight ? 'Daytime' : 'Night time'}
+          >
+            {isNight ? '🌙' : '☀️'}
+          </button>
           <button
             onClick={onOpenGrownUps}
             className={`${pill} text-xs font-semibold text-white/80`}
@@ -245,7 +259,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
               <span>Play</span>
             </button>
 
-            <div className="mt-3 flex items-center gap-2">
+            <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
               <button
                 onClick={() => setShowPlaces((v) => !v)}
                 className="pointer-events-auto flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-slate-950/80 border border-white/15 text-white text-base font-bold shadow-lg transition active:scale-95 cursor-pointer"
@@ -264,6 +278,13 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                     {friendsMet}/{friendsTotal}
                   </span>
                 </span>
+              </button>
+              <button
+                onClick={onOpenShop}
+                className="pointer-events-auto flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-pink-500/90 border border-white/30 text-white text-base font-bold shadow-lg transition active:scale-95 cursor-pointer"
+              >
+                <span className="text-lg leading-none">👒</span>
+                <span>Dress up</span>
               </button>
             </div>
 

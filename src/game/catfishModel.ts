@@ -281,6 +281,9 @@ export class CatfishCharacter {
   private lastWobble = 0;
   private dizzyStars: THREE.Group | null = null;
   private rainbowMode = false;
+  private rainbowReward = false;
+  private outfitFinColor: string | null = null;
+  private accessories: { hat: THREE.Object3D | null; glasses: THREE.Object3D | null } = { hat: null, glasses: null };
   private rainbowTime = 0;
   private rainbowMats: {
     mat: THREE.MeshStandardMaterial;
@@ -651,50 +654,89 @@ export class CatfishCharacter {
   }
 
   /**
-   * Rainbow Whiskers: tail and fins cycle through rainbow colors. Reads the materials from the
-   * meshes because they may have been swapped for cheaper ones after construction.
+   * Fin colors. The rainbow-pearl reward and the dress-up color both land here; the rainbow
+   * reward wins while it's active. Materials are read from the meshes on first use because
+   * they may have been swapped for cheaper ones after construction.
    */
-  public setRainbow(on: boolean) {
-    if (on === this.rainbowMode) return;
-    this.rainbowMode = on;
-    if (on) {
-      const fins: THREE.Object3D[] = [
-        ...this.tailFin.children,
-        this.dorsalFin,
-        this.adiposeFin,
-        this.analFin,
-        this.leftPecFin,
-        this.rightPecFin,
-        this.leftPelvicFin,
-        this.rightPelvicFin,
-      ];
-      const seen = new Set<THREE.Material>();
-      this.rainbowMats = [];
-      fins.forEach((o) => {
-        const mat = (o as THREE.Mesh).material as THREE.MeshStandardMaterial;
-        if (!mat || !mat.color || seen.has(mat)) return;
-        seen.add(mat);
-        this.rainbowMats.push({
-          mat,
-          color: mat.color.clone(),
-          emissive: mat.emissive.clone(),
-          emissiveIntensity: mat.emissiveIntensity,
-          map: mat.map,
-          offset: this.rainbowMats.length * 0.25,
-        });
-        mat.map = null; // the reddish fin texture would tint every color red
-        mat.needsUpdate = true;
+  private collectFinMats() {
+    if (this.rainbowMats.length) return;
+    const fins: THREE.Object3D[] = [
+      ...this.tailFin.children,
+      this.dorsalFin,
+      this.adiposeFin,
+      this.analFin,
+      this.leftPecFin,
+      this.rightPecFin,
+      this.leftPelvicFin,
+      this.rightPelvicFin,
+    ];
+    const seen = new Set<THREE.Material>();
+    fins.forEach((o) => {
+      const mat = (o as THREE.Mesh).material as THREE.MeshStandardMaterial;
+      if (!mat || !mat.color || seen.has(mat)) return;
+      seen.add(mat);
+      this.rainbowMats.push({
+        mat,
+        color: mat.color.clone(),
+        emissive: mat.emissive.clone(),
+        emissiveIntensity: mat.emissiveIntensity,
+        map: mat.map,
+        offset: this.rainbowMats.length * 0.25,
       });
-    } else {
-      this.rainbowMats.forEach((r) => {
+    });
+  }
+
+  private applyFinColors() {
+    this.collectFinMats();
+    const mode: 'none' | 'color' | 'rainbow' =
+      this.rainbowReward || this.outfitFinColor === 'rainbow' ? 'rainbow' : this.outfitFinColor ? 'color' : 'none';
+    this.rainbowMode = mode === 'rainbow';
+    this.rainbowMats.forEach((r) => {
+      const wantMap = mode === 'none' ? r.map : null; // the reddish fin texture would tint colors
+      if (r.mat.map !== wantMap) {
+        r.mat.map = wantMap;
+        r.mat.needsUpdate = true;
+      }
+      if (mode === 'none') {
         r.mat.color.copy(r.color);
         r.mat.emissive.copy(r.emissive);
         r.mat.emissiveIntensity = r.emissiveIntensity;
-        r.mat.map = r.map;
-        r.mat.needsUpdate = true;
+      } else if (mode === 'color') {
+        r.mat.color.set(this.outfitFinColor as string);
+        r.mat.emissive.set(this.outfitFinColor as string);
+        r.mat.emissiveIntensity = 0.25;
+      }
+    });
+  }
+
+  /** Rainbow Whiskers reward from the Grand Lake rainbow (for the current swim). */
+  public setRainbow(on: boolean) {
+    if (on === this.rainbowReward) return;
+    this.rainbowReward = on;
+    this.applyFinColors();
+  }
+
+  /** Dress-up fin color: a CSS color, 'rainbow', or null for his natural colors. */
+  public setFinColor(color: string | null) {
+    this.outfitFinColor = color;
+    this.applyFinColors();
+  }
+
+  /** Put on (or take off with null) a hat or glasses built by closet.ts. */
+  public setAccessory(slot: 'hat' | 'glasses', model: THREE.Object3D | null) {
+    const old = this.accessories[slot];
+    if (old) {
+      this.group.remove(old);
+      old.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (m.isMesh) {
+          m.geometry.dispose();
+          (m.material as THREE.Material).dispose();
+        }
       });
-      this.rainbowMats = [];
     }
+    this.accessories[slot] = model;
+    if (model) this.group.add(model);
   }
 
   /** Cartoon bump: a quick wobble and dizzy stars circling over his head. */
