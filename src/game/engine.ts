@@ -19,6 +19,7 @@ import { Sparkles } from './sparkles';
 import { RainbowGoal } from './rainbow';
 import { BadGuys } from './badGuys';
 import { Fireflies } from './fireflies';
+import { music } from './music';
 import { DolphinRace, HideAndSeek, RaceProgress } from './minigames';
 import { FIN_COLORS, Outfit, buildAccessory, loadCloset } from './closet';
 import { WaterLook, addCaustics, createShorelineFoam, createWaterLook } from './water';
@@ -44,6 +45,7 @@ const _vec3A = new THREE.Vector3();
 
 const NIGHT_FOG = new THREE.Color('#5b4f8f');
 const NIGHT_WATER = new THREE.Color('#1d3f6e');
+const PLACE_KEY = 'whiskers_last_place';
 const RAINBOW_COLORS = ['#ff4d4d', '#ff9f1a', '#ffe14d', '#4dff88', '#4dc3ff', '#9b6bff', '#ff6bd6'];
 const CONFETTI = ['#ff4d8d', '#ffd23f', '#4de3ff', '#7dff6b', '#c58bff', '#ffffff'];
 const SPARKLE_COLORS: Record<string, string[]> = {
@@ -96,6 +98,21 @@ export interface GameCallbacks {
   onMiniGameChange: (info: MiniGameInfo) => void;
 }
 
+export type Difficulty = 'gentle' | 'normal' | 'tricky';
+
+/**
+ * Bad guy settings per level. chase: 'slow' = slower than Whiskers' normal swim, otherwise a
+ * fraction of his Zoom speed. snack: tummy taken when caught (0 = just a bump).
+ */
+const DIFFICULTY: Record<
+  Difficulty,
+  { wake: number; zoomWake: number; notice: number; chaseTime: number; chase: 'slow' | number; snack: number }
+> = {
+  gentle: { wake: 2.0, zoomWake: 2.6, notice: 10, chaseTime: 2, chase: 'slow', snack: 0 },
+  normal: { wake: 2.6, zoomWake: 4.2, notice: 14, chaseTime: 3.5, chase: 0.8, snack: 15 },
+  tricky: { wake: 3.2, zoomWake: 5.5, notice: 18, chaseTime: 5, chase: 0.9, snack: 20 },
+};
+
 export interface MiniGameInfo {
   /** Free swimming in the lake and no game running: offer hide-and-seek. */
   canHideSeek: boolean;
@@ -137,6 +154,7 @@ export class GameEngine {
   private hideSeek = new HideAndSeek();
   private hideSeekInviteTimer = 0;
   private lastMiniKey = '';
+  private placeSaveTimer = 3;
   private rainbowPartyTimer: number = 0;
   private fireworkTimer: number = 0;
   private victoryTime: number = 0;
@@ -336,6 +354,7 @@ export class GameEngine {
     this.streamer.addChildrenOf(this.race.group, 170);
     this.applyOutfit(loadCloset().outfit);
     this.applyChapterLook(CHAPTERS[0], 0);
+    this.setDifficulty(GameEngine.loadDifficulty());
     this.adaptiveResolution = new AdaptiveResolution(
       this.renderer,
       this.isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2)
@@ -484,6 +503,60 @@ export class GameEngine {
     }
   }
 
+  /** Grown-ups setting for how tricky the caimans and piranhas are. */
+  public difficulty: Difficulty = 'normal';
+
+  public setDifficulty(level: Difficulty) {
+    this.difficulty = level;
+    const t = DIFFICULTY[level];
+    this.badGuys.tuning = { wake: t.wake, zoomWake: t.zoomWake, notice: t.notice, chaseTime: t.chaseTime };
+    try {
+      localStorage.setItem('whiskers_difficulty', level);
+    } catch {
+      // ignore
+    }
+  }
+
+  /** Where Whiskers was in the river last time (for Continue), or null. */
+  public static loadDifficulty(): Difficulty {
+    try {
+      const saved = localStorage.getItem('whiskers_difficulty');
+      if (saved === 'gentle' || saved === 'tricky') return saved;
+    } catch {
+      // ignore
+    }
+    return 'normal';
+  }
+
+  public static loadSavedPlace(): number | null {
+    try {
+      const d = Number(localStorage.getItem(PLACE_KEY));
+      return Number.isFinite(d) && d > 60 && d < 2400 ? d : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private savePlace(distance: number | null) {
+    try {
+      if (distance === null) localStorage.removeItem(PLACE_KEY);
+      else localStorage.setItem(PLACE_KEY, String(Math.round(distance)));
+    } catch {
+      // ignore
+    }
+  }
+
+  /** Continue from the saved place in the river (a little before it, for a gentle restart). */
+  public continueGame() {
+    const saved = GameEngine.loadSavedPlace();
+    this.startGame(0);
+    if (saved !== null) {
+      this.playerDistance = Math.max(15, saved - 10);
+      this.updateChapter(true);
+      this.callbacks.onTipMessage('Welcome back! Keep swimming to the Grand Lake!');
+    }
+  }
+
   public startGame(startAtChapterIndex: number = 0) {
     this.isFreeSwim = false;
     this.riverWorld.setFamilyFollow(null);
@@ -498,6 +571,7 @@ export class GameEngine {
     this.gameState = 'playing';
     this.callbacks.onStateChange('playing');
     sound.startRiverAmbience();
+    music.start(Math.max(0, Math.min(CHAPTERS.length - 1, startAtChapterIndex)), this.night);
 
     if (startAtChapterIndex > 0 && startAtChapterIndex < CHAPTERS.length) {
       this.playerDistance = CHAPTERS[startAtChapterIndex].startDist + 15;
@@ -594,11 +668,11 @@ export class GameEngine {
   }
 
   /** Pictures of each friend drawn from their in-game models, for the sticker book. */
-  public drawFriendStickers() {
+  public drawFriendStickers(size?: number) {
     return renderFriendStickers([
       ...this.riverWorld.friendSpots,
       { kind: 'rainbow', object: this.rainbow.pearl },
-    ]);
+    ], size);
   }
 
   private setNearbyFriend(kind: FriendKind | null) {
@@ -1014,7 +1088,8 @@ export class GameEngine {
 
     this.riverWorld.update(dt, this.playerDistance);
     this.updateRingsChestsAndFriends(dt, prevDistance);
-    this.updateBadGuys(dt, isBoosting, speedCfg.boost * 0.8);
+    const level = DIFFICULTY[this.difficulty];
+    this.updateBadGuys(dt, isBoosting, level.chase === 'slow' ? speedCfg.base * 0.9 : speedCfg.boost * level.chase);
     this.updateMiniGames(dt, prevDistance, (speedCfg.max + speedCfg.boost) / 2);
 
     this.itemManager.updateAndCheckCollisions(
@@ -1095,6 +1170,13 @@ export class GameEngine {
     );
 
     this.updateChapter(false);
+
+    // Remember the spot every few seconds for the Continue button.
+    this.placeSaveTimer -= dt;
+    if (this.placeSaveTimer <= 0 && !this.isFreeSwim) {
+      this.placeSaveTimer = 3;
+      this.savePlace(this.playerDistance);
+    }
 
     if (this.playerDistance >= 2420 && this.gameState === 'playing' && !this.isFreeSwim) {
       this.triggerGrandLakeCelebration();
@@ -1254,10 +1336,16 @@ export class GameEngine {
   }
 
   private loseSnack(by: 'caiman' | 'piranhas') {
-    this.tummy = Math.max(0, this.tummy - 15);
+    this.lastBadGuyTip = this.elapsedSeconds;
+    const loss = DIFFICULTY[this.difficulty].snack;
+    if (loss === 0) {
+      // Gentle: just a bump and a friendly reminder.
+      this.callbacks.onTipMessage(by === 'caiman' ? 'Boing! Swim around the caiman!' : 'Boing! Zoom away from the piranhas!');
+      return;
+    }
+    this.tummy = Math.max(0, this.tummy - loss);
     this.callbacks.onTummyChange(Math.round(this.tummy));
     sound.playChomp();
-    this.lastBadGuyTip = this.elapsedSeconds;
     if (by === 'caiman') {
       this.callbacks.onTreasurePopup('Snap! It took a snack!', 0, '🐊');
       narrator.say('Oh no! The caiman took a snack!', true);
@@ -1391,6 +1479,7 @@ export class GameEngine {
       this.callbacks.onChapterChange(chapter);
 
       this.applyChapterLook(chapter, activeIdx);
+      if (this.gameState !== 'title') music.start(activeIdx, this.night);
       this.rainbow.setVisible(activeIdx === CHAPTERS.length - 1, forceUpdate);
 
       if (!forceUpdate && activeIdx > prev) {
@@ -1432,9 +1521,11 @@ export class GameEngine {
       // ignore
     }
     this.applyChapterLook(CHAPTERS[this.currentChapterIndex], this.currentChapterIndex);
+    music.start(this.currentChapterIndex, on);
   }
 
   private triggerGrandLakeCelebration() {
+    this.savePlace(null); // journey finished: next time starts fresh
     this.gameState = 'victory';
     this.callbacks.onStateChange('victory');
     this.setNearbyFriend(null);
@@ -1474,6 +1565,7 @@ export class GameEngine {
     this.race.dispose();
     this.sky.dispose();
     narrator.stop();
+    music.stop();
     this.renderer.dispose();
 
     if (this.renderer.domElement && this.renderer.domElement.parentNode) {

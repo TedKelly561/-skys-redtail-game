@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Play, Volume2, VolumeX, Map as MapIcon, Settings, Pencil } from 'lucide-react';
-import { CHAPTERS } from '../game/worldGen';
+import { CHAPTERS, RiverChapterInfo } from '../game/worldGen';
 import { TreasureCounts } from '../game/engine';
 import { DailyMissionsState } from '../game/dailyMissions';
 import { useIsTouchDevice } from './GameHUD';
@@ -15,6 +15,9 @@ interface TitleScreenProps {
   onOpenShop: () => void;
   isNight: boolean;
   onToggleNight: () => void;
+  /** Part of the river saved from last time, if any (shows a Continue button). */
+  continueChapter: RiverChapterInfo | null;
+  onContinue: () => void;
   dailyMissions: DailyMissionsState;
   onOpenDailyMissions: () => void;
   playerName: string;
@@ -105,6 +108,8 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   onOpenShop,
   isNight,
   onToggleNight,
+  continueChapter,
+  onContinue,
   dailyMissions,
   onOpenDailyMissions,
   playerName,
@@ -251,13 +256,36 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
               </p>
             )}
 
-            <button
-              onClick={() => onStartGame(0)}
-              className="pointer-events-auto w-full max-w-xs py-5 rounded-3xl bg-gradient-to-b from-emerald-400 to-emerald-600 border-4 border-white/80 text-white text-3xl font-black shadow-2xl shadow-emerald-900/40 flex items-center justify-center gap-3 transition active:scale-95 hover:brightness-110 cursor-pointer"
-            >
-              <Play className="w-8 h-8 fill-white" />
-              <span>Play</span>
-            </button>
+            {continueChapter ? (
+              <>
+                <button
+                  onClick={onContinue}
+                  className="pointer-events-auto w-full max-w-xs py-4 rounded-3xl bg-gradient-to-b from-emerald-400 to-emerald-600 border-4 border-white/80 text-white text-3xl font-black shadow-2xl shadow-emerald-900/40 flex flex-col items-center justify-center transition active:scale-95 hover:brightness-110 cursor-pointer"
+                >
+                  <span className="flex items-center gap-3">
+                    <Play className="w-8 h-8 fill-white" />
+                    <span>Continue</span>
+                  </span>
+                  <span className="text-sm font-bold text-white/90">
+                    {continueChapter.icon} {continueChapter.name}
+                  </span>
+                </button>
+                <button
+                  onClick={() => onStartGame(0)}
+                  className="pointer-events-auto mt-2 px-4 py-1.5 rounded-full bg-slate-950/70 border border-white/15 text-white/90 text-sm font-bold transition active:scale-95 cursor-pointer"
+                >
+                  ↺ Start from the beginning
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => onStartGame(0)}
+                className="pointer-events-auto w-full max-w-xs py-5 rounded-3xl bg-gradient-to-b from-emerald-400 to-emerald-600 border-4 border-white/80 text-white text-3xl font-black shadow-2xl shadow-emerald-900/40 flex items-center justify-center gap-3 transition active:scale-95 hover:brightness-110 cursor-pointer"
+              >
+                <Play className="w-8 h-8 fill-white" />
+                <span>Play</span>
+              </button>
+            )}
 
             <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
               <button

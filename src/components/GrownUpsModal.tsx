@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { User } from 'firebase/auth';
-import { X, Cloud, CloudOff, LogOut, CheckCircle2 } from 'lucide-react';
-import { PaceMode, TreasureCounts } from '../game/engine';
+import { X, Cloud, CloudOff, LogOut, CheckCircle2, Share, Download } from 'lucide-react';
+import { Difficulty, PaceMode, TreasureCounts } from '../game/engine';
+import { getInstallStatus, InstallStatus, onInstallChange, promptInstall } from '../game/install';
 import { CHAPTERS } from '../game/worldGen';
 import { MAX_NAME_LENGTH } from '../game/profile';
 
@@ -55,6 +56,10 @@ interface GrownUpsModalProps {
   readAloud: boolean;
   readAloudSupported: boolean;
   onSetReadAloud: (on: boolean) => void;
+  musicOn: boolean;
+  onSetMusic: (on: boolean) => void;
+  difficulty: Difficulty;
+  onSetDifficulty: (level: Difficulty) => void;
 }
 
 export const GrownUpsModal: React.FC<GrownUpsModalProps> = ({
@@ -75,11 +80,21 @@ export const GrownUpsModal: React.FC<GrownUpsModalProps> = ({
   readAloud,
   readAloudSupported,
   onSetReadAloud,
+  musicOn,
+  onSetMusic,
+  difficulty,
+  onSetDifficulty,
 }) => {
   const [nameDraft, setNameDraft] = useState(playerName);
   useEffect(() => {
     if (isOpen) setNameDraft(playerName);
   }, [isOpen, playerName]);
+  const [installStatus, setInstallStatus] = useState<InstallStatus>(() => getInstallStatus());
+  useEffect(() => {
+    if (!isOpen) return;
+    setInstallStatus(getInstallStatus());
+    return onInstallChange(() => setInstallStatus(getInstallStatus()));
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -204,6 +219,19 @@ export const GrownUpsModal: React.FC<GrownUpsModalProps> = ({
               />
             </label>
           )}
+
+          <label className="mt-3 flex items-center justify-between gap-3 cursor-pointer">
+            <span>
+              <span className="block text-sm font-bold text-sky-200">Background music</span>
+              <span className="block text-[11px] text-slate-400">Soft tunes while swimming</span>
+            </span>
+            <input
+              type="checkbox"
+              checked={musicOn}
+              onChange={(e) => onSetMusic(e.target.checked)}
+              className="w-6 h-6 accent-teal-400 cursor-pointer"
+            />
+          </label>
         </section>
 
         {/* Swim length */}
@@ -230,6 +258,68 @@ export const GrownUpsModal: React.FC<GrownUpsModalProps> = ({
               </button>
             ))}
           </div>
+        </section>
+
+        {/* Bad guys */}
+        <section className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800 mb-3">
+          <div className="text-sm font-bold text-rose-200 mb-2">Bad guys</div>
+          <div className="grid grid-cols-3 gap-2">
+            {(
+              [
+                { level: 'gentle', label: 'Gentle', hint: 'Slow, no snacks lost' },
+                { level: 'normal', label: 'Normal', hint: 'A little chase' },
+                { level: 'tricky', label: 'Tricky', hint: 'Faster, sneakier' },
+              ] as { level: Difficulty; label: string; hint: string }[]
+            ).map((opt) => (
+              <button
+                key={opt.level}
+                onClick={() => onSetDifficulty(opt.level)}
+                className={`py-2.5 px-2 rounded-xl text-left transition cursor-pointer border ${
+                  difficulty === opt.level
+                    ? 'bg-rose-400 border-rose-200 text-slate-950'
+                    : 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700'
+                }`}
+              >
+                <div className="text-sm font-bold">{opt.label}</div>
+                <div className="text-[11px] opacity-80 leading-tight">{opt.hint}</div>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        {/* Home screen app */}
+        <section className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800 mb-3">
+          <div className="text-sm font-bold text-emerald-200 mb-2">Put it on the home screen</div>
+          {installStatus === 'installed' && (
+            <p className="text-xs text-emerald-300 flex items-center gap-1.5">
+              <CheckCircle2 className="w-4 h-4" /> Installed. Open Whiskers from the home screen.
+            </p>
+          )}
+          {installStatus === 'ready' && (
+            <>
+              <p className="text-xs text-slate-300 mb-3">
+                Adds a Whiskers icon that opens the game full screen, like an app.
+              </p>
+              <button
+                onClick={() => void promptInstall()}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-bold text-sm transition active:scale-95 cursor-pointer"
+              >
+                <Download className="w-4 h-4" /> Install Whiskers
+              </button>
+            </>
+          )}
+          {installStatus === 'ios' && (
+            <p className="text-xs text-slate-300 leading-relaxed">
+              In Safari, tap <Share className="inline w-3.5 h-3.5 -mt-0.5" aria-label="Share" /> Share,
+              then <b>Add to Home Screen</b>. Whiskers will open full screen, like an app.
+            </p>
+          )}
+          {installStatus === 'manual' && (
+            <p className="text-xs text-slate-300 leading-relaxed">
+              In your browser's menu, choose <b>Install app</b> or <b>Add to Home screen</b>.
+              Whiskers will open full screen, like an app.
+            </p>
+          )}
         </section>
 
         {/* Progress summary */}

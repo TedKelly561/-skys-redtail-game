@@ -5,7 +5,7 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { User } from 'firebase/auth';
-import { GameEngine, GameState, MiniGameInfo, PaceMode, TreasureCounts } from './game/engine';
+import { Difficulty, GameEngine, GameState, MiniGameInfo, PaceMode, TreasureCounts } from './game/engine';
 import { CHAPTERS, RiverChapterInfo } from './game/worldGen';
 import { DailyMissionsState, DailyMissionsManager } from './game/dailyMissions';
 import { TitleScreen } from './components/TitleScreen';
@@ -19,6 +19,7 @@ import { DressUpShop } from './components/DressUpShop';
 import { ClosetItem, ClosetSlot, ClosetState, loadCloset, saveCloset } from './game/closet';
 import { sound } from './game/audio';
 import { narrator } from './game/voice';
+import { music } from './game/music';
 import { ANIMAL_FRIEND_COUNT, FriendKind, countAnimalFriends } from './game/friends';
 import { getPlayerName, hasBeenAskedForName, setPlayerName as storePlayerName } from './game/profile';
 import {
@@ -63,6 +64,8 @@ export default function App() {
   const [playerName, setPlayerName] = useState<string>(() => getPlayerName());
   const [askForName, setAskForName] = useState<boolean>(() => !hasBeenAskedForName());
   const [readAloud, setReadAloud] = useState<boolean>(() => narrator.getEnabled());
+  const [musicOn, setMusicOn] = useState<boolean>(() => music.getEnabled());
+  const [difficulty, setDifficulty] = useState<Difficulty>(() => GameEngine.loadDifficulty());
   const [metFriends, setMetFriends] = useState<FriendKind[]>([]);
   const [friendNearby, setFriendNearby] = useState<boolean>(false);
   const [isFriendsOpen, setIsFriendsOpen] = useState<boolean>(false);
@@ -70,6 +73,9 @@ export default function App() {
   const [closet, setCloset] = useState<ClosetState>(() => loadCloset());
   const [tryingOn, setTryingOn] = useState<ClosetItem | null>(null);
   const [isShopOpen, setIsShopOpen] = useState<boolean>(false);
+  const [savedPlace] = useState<number | null>(() => GameEngine.loadSavedPlace());
+  const continueChapter =
+    savedPlace === null ? null : [...CHAPTERS].reverse().find((c) => savedPlace >= c.startDist) ?? null;
   const [miniGame, setMiniGame] = useState<MiniGameInfo>({ canHideSeek: false, hideSeekActive: false, race: null });
   const [isNight, setIsNight] = useState<boolean>(() => {
     try {
@@ -350,6 +356,28 @@ export default function App() {
     setAskForName(false);
   };
 
+  const handleSetMusic = (on: boolean) => {
+    music.setEnabled(on);
+    setMusicOn(on);
+  };
+
+  const handleSetDifficulty = (level: Difficulty) => {
+    engineRef.current?.setDifficulty(level);
+    setDifficulty(level);
+  };
+
+  // Start the title tune on the first tap (browsers only allow sound after a tap).
+  useEffect(() => {
+    if (gameState !== 'title') return;
+    const begin = () => music.start(0, isNight);
+    window.addEventListener('pointerdown', begin, { once: true });
+    window.addEventListener('keydown', begin, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', begin);
+      window.removeEventListener('keydown', begin);
+    };
+  }, [gameState, isNight]);
+
   const handleSetReadAloud = (on: boolean) => {
     narrator.setEnabled(on);
     setReadAloud(on);
@@ -506,6 +534,8 @@ export default function App() {
           onOpenShop={openShop}
           isNight={isNight}
           onToggleNight={toggleNight}
+          continueChapter={continueChapter}
+          onContinue={() => engineRef.current?.continueGame()}
           dailyMissions={dailyMissions}
           onOpenDailyMissions={openDailyMissions}
           playerName={playerName}
@@ -596,6 +626,10 @@ export default function App() {
         readAloud={readAloud}
         readAloudSupported={narrator.isSupported()}
         onSetReadAloud={handleSetReadAloud}
+        musicOn={musicOn}
+        onSetMusic={handleSetMusic}
+        difficulty={difficulty}
+        onSetDifficulty={handleSetDifficulty}
       />
 
       {/* Dress-up shop */}

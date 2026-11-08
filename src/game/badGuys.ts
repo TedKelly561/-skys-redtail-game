@@ -69,6 +69,8 @@ export class BadGuys {
   private caimans: Caiman[] = [];
   private schools: PiranhaSchool[] = [];
   private disposables: { dispose: () => void }[] = [];
+  /** Tuned by the grown-ups difficulty setting. */
+  public tuning = { wake: 2.6, zoomWake: 4.2, notice: 14, chaseTime: 3.5 };
 
   constructor(scene: THREE.Scene) {
     scene.add(this.caimanGroup, this.piranhaGroup);
@@ -302,7 +304,7 @@ export class BadGuys {
           c.warned = true;
           events.push({ type: 'warn', by: 'caiman' });
         }
-        const wakeRadius = isBoosting ? 4.2 : 2.6;
+        const wakeRadius = isBoosting ? this.tuning.zoomWake : this.tuning.wake;
         if (near < wakeRadius && !deep) {
           c.state = 'snap';
           c.timer = 0;
@@ -352,7 +354,7 @@ export class BadGuys {
         _w.set(s.home.x + Math.cos(s.phase * 0.7) * 1.5, s.home.y, s.home.z + Math.sin(s.phase * 0.7) * 1.5);
         g.position.lerp(_w, Math.min(1, dt * 2));
         g.rotation.y = Math.atan2(-Math.sin(s.phase * 0.7), Math.cos(s.phase * 0.7));
-        if (d < 14 && s.cooldown <= 0) {
+        if (d < this.tuning.notice && s.cooldown <= 0) {
           s.state = 'notice';
           s.timer = 0;
           events.push({ type: 'warn', by: 'piranhas' });
@@ -377,7 +379,7 @@ export class BadGuys {
           s.state = 'flee';
           s.timer = 0;
           s.cooldown = 14;
-        } else if (s.timer > 3.5 || d > 25) {
+        } else if (s.timer > this.tuning.chaseTime || d > 25) {
           events.push({ type: 'escaped', by: 'piranhas' });
           s.state = 'flee';
           s.timer = 0;
