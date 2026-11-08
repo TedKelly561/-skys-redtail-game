@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Play, Volume2, VolumeX, Map as MapIcon, Settings } from 'lucide-react';
+import { Play, Volume2, VolumeX, Map as MapIcon, Settings, Pencil } from 'lucide-react';
 import { CHAPTERS } from '../game/worldGen';
 import { TreasureCounts } from '../game/engine';
 import { DailyMissionsState } from '../game/dailyMissions';
 import { useIsTouchDevice } from './GameHUD';
+import { MAX_NAME_LENGTH } from '../game/profile';
 
 interface TitleScreenProps {
   onStartGame: (chapterIdx: number) => void;
@@ -13,7 +14,59 @@ interface TitleScreenProps {
   onOpenGrownUps: () => void;
   dailyMissions: DailyMissionsState;
   onOpenDailyMissions: () => void;
+  playerName: string;
+  /** First visit on this device: ask for the player's name before showing Play. */
+  askForName: boolean;
+  onSetName: (name: string) => void;
+  friendsMet: number;
+  friendsTotal: number;
+  onOpenFriends: () => void;
 }
+
+/** "What's your name?" card. A grown-up can type it; Skip is always available. */
+const NameCard: React.FC<{
+  initial: string;
+  onDone: (name: string) => void;
+}> = ({ initial, onDone }) => {
+  const [value, setValue] = useState(initial);
+  return (
+    <form
+      className="pointer-events-auto w-full max-w-xs p-4 rounded-3xl bg-slate-950/85 border-2 border-white/15 shadow-2xl flex flex-col items-center gap-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onDone(value);
+      }}
+    >
+      <label htmlFor="player-name" className="text-xl font-black text-white">
+        👋 What's your name?
+      </label>
+      <input
+        id="player-name"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        maxLength={MAX_NAME_LENGTH}
+        autoComplete="off"
+        autoCapitalize="words"
+        enterKeyHint="go"
+        placeholder="Type your name"
+        className="w-full px-4 py-3 rounded-2xl bg-white text-slate-900 text-2xl font-bold text-center outline-none border-4 border-teal-300 focus:border-amber-300 placeholder:text-slate-400 placeholder:text-lg"
+      />
+      <button
+        type="submit"
+        className="w-full py-3 rounded-2xl bg-gradient-to-b from-emerald-400 to-emerald-600 border-4 border-white/80 text-white text-xl font-black transition active:scale-95 cursor-pointer"
+      >
+        That's me!
+      </button>
+      <button
+        type="button"
+        onClick={() => onDone('')}
+        className="text-sm font-semibold text-white/60 hover:text-white cursor-pointer"
+      >
+        Skip
+      </button>
+    </form>
+  );
+};
 
 /** Five big picture cards so a child can jump to their favorite part of the river. */
 export const PlacePicker: React.FC<{
@@ -48,8 +101,16 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   onOpenGrownUps,
   dailyMissions,
   onOpenDailyMissions,
+  playerName,
+  askForName,
+  onSetName,
+  friendsMet,
+  friendsTotal,
+  onOpenFriends,
 }) => {
   const [showPlaces, setShowPlaces] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const showNameCard = askForName || editingName;
   const isTouch = useIsTouchDevice();
 
   const doneMissions = dailyMissions.missions.filter((m) => m.completed).length;
@@ -149,37 +210,76 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           </text>
         </svg>
 
-        <p className="mt-1 mb-5 text-white text-base sm:text-lg font-bold drop-shadow-[0_2px_3px_rgba(0,0,0,0.8)]">
-          Help Whiskers swim home to the Grand Lake! 🏝️
-        </p>
-
-        <button
-          onClick={() => onStartGame(0)}
-          className="pointer-events-auto w-full max-w-xs py-5 rounded-3xl bg-gradient-to-b from-emerald-400 to-emerald-600 border-4 border-white/80 text-white text-3xl font-black shadow-2xl shadow-emerald-900/40 flex items-center justify-center gap-3 transition active:scale-95 hover:brightness-110 cursor-pointer"
-        >
-          <Play className="w-8 h-8 fill-white" />
-          <span>Play</span>
-        </button>
-
-        <button
-          onClick={() => setShowPlaces((v) => !v)}
-          className="pointer-events-auto mt-3 flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-slate-950/80 border border-white/15 text-white text-base font-bold shadow-lg transition active:scale-95 cursor-pointer"
-        >
-          <MapIcon className="w-5 h-5 text-teal-300" />
-          <span>Pick a place</span>
-        </button>
-
-        {showPlaces && (
-          <div className="mt-3 w-full p-3 rounded-3xl bg-slate-950/85 border border-white/10 shadow-2xl">
-            <PlacePicker onPick={onStartGame} />
+        {showNameCard ? (
+          <div className="mt-2 w-full flex justify-center">
+            <NameCard
+              initial={playerName}
+              onDone={(name) => {
+                onSetName(name);
+                setEditingName(false);
+              }}
+            />
           </div>
-        )}
+        ) : (
+          <>
+            {playerName ? (
+              <button
+                onClick={() => setEditingName(true)}
+                className="pointer-events-auto mt-1 mb-4 flex items-center gap-2 text-white text-2xl font-black drop-shadow-[0_2px_3px_rgba(0,0,0,0.8)] cursor-pointer"
+                aria-label={`Hi, ${playerName}! Tap to change your name`}
+              >
+                <span>Hi, {playerName}! 👋</span>
+                <Pencil className="w-4 h-4 text-white/70" />
+              </button>
+            ) : (
+              <p className="mt-1 mb-5 text-white text-base sm:text-lg font-bold drop-shadow-[0_2px_3px_rgba(0,0,0,0.8)]">
+                Help Whiskers swim home to the Grand Lake! 🏝️
+              </p>
+            )}
 
-        {(counts.stars > 0 || counts.treasuresTotal > 0) && (
-          <div className="mt-4 flex items-center gap-4 px-4 py-2 rounded-full bg-slate-950/70 border border-white/10 text-white font-black text-lg tabular-nums">
-            <span>⭐ {counts.stars}</span>
-            <span>💎 {counts.treasuresTotal}</span>
-          </div>
+            <button
+              onClick={() => onStartGame(0)}
+              className="pointer-events-auto w-full max-w-xs py-5 rounded-3xl bg-gradient-to-b from-emerald-400 to-emerald-600 border-4 border-white/80 text-white text-3xl font-black shadow-2xl shadow-emerald-900/40 flex items-center justify-center gap-3 transition active:scale-95 hover:brightness-110 cursor-pointer"
+            >
+              <Play className="w-8 h-8 fill-white" />
+              <span>Play</span>
+            </button>
+
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                onClick={() => setShowPlaces((v) => !v)}
+                className="pointer-events-auto flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-slate-950/80 border border-white/15 text-white text-base font-bold shadow-lg transition active:scale-95 cursor-pointer"
+              >
+                <MapIcon className="w-5 h-5 text-teal-300" />
+                <span>Pick a place</span>
+              </button>
+              <button
+                onClick={onOpenFriends}
+                className="pointer-events-auto flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-slate-950/80 border border-white/15 text-white text-base font-bold shadow-lg transition active:scale-95 cursor-pointer"
+              >
+                <span className="text-lg leading-none">📖</span>
+                <span>
+                  Friends{' '}
+                  <span className="tabular-nums text-amber-300">
+                    {friendsMet}/{friendsTotal}
+                  </span>
+                </span>
+              </button>
+            </div>
+
+            {showPlaces && (
+              <div className="mt-3 w-full p-3 rounded-3xl bg-slate-950/85 border border-white/10 shadow-2xl">
+                <PlacePicker onPick={onStartGame} />
+              </div>
+            )}
+
+            {(counts.stars > 0 || counts.treasuresTotal > 0) && (
+              <div className="mt-4 flex items-center gap-4 px-4 py-2 rounded-full bg-slate-950/70 border border-white/10 text-white font-black text-lg tabular-nums">
+                <span>⭐ {counts.stars}</span>
+                <span>💎 {counts.treasuresTotal}</span>
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -187,8 +287,8 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
       <div className="w-full flex justify-center">
         <div className="px-4 py-2 rounded-2xl bg-slate-950/75 border border-white/10 text-white/90 text-sm font-semibold text-center">
           {isTouch
-            ? '🐟 Move the fish button to swim · ⚡ Zoom · 👃 Sniff for snacks'
-            : '⬅️ ➡️ ⬆️ ⬇️ Swim · Space Zoom · E Sniff for snacks · Esc Pause'}
+            ? '🐟 Move the fish button to swim · ⚡ Zoom · 👃 Sniff for snacks and friends'
+            : '⬅️ ➡️ ⬆️ ⬇️ Swim · Space Zoom · E Sniff for snacks and friends · Esc Pause'}
         </div>
       </div>
     </div>

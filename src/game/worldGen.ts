@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { getGameTextures } from './textures';
 import { CatfishCharacter } from './catfishModel';
+import type { FriendSpot } from './friends';
 
 export interface RiverChapterInfo {
   id: number;
@@ -428,6 +429,8 @@ export class RiverWorld {
   public grandLakeCelebrationGroup: THREE.Group;
 
   public currentZones: RiverCurrentZone[] = [];
+  /** Every animal Whiskers can sniff to say hi (see friends.ts). */
+  public friendSpots: FriendSpot[] = [];
   public logObstacles: LogObstacle[] = [];
 
   public windBranches: {
@@ -1538,6 +1541,7 @@ export class RiverWorld {
       frogGroup.rotation.y = side * -1.2;
       padGroup.add(frogGroup);
 
+      this.friendSpots.push({ kind: 'frog', object: frogGroup });
       this.frogs.push({
         group: frogGroup,
         throatSac,
@@ -1781,6 +1785,7 @@ export class RiverWorld {
       );
       schoolGroup.position.copy(centerPos);
       this.animalsGroup.add(schoolGroup);
+      this.friendSpots.push({ kind: 'tetras', object: schoolGroup });
 
       this.fishSchools.push({
         group: schoolGroup,
@@ -1918,6 +1923,7 @@ export class RiverWorld {
       );
       turtle.position.copy(basePos);
       this.animalsGroup.add(turtle);
+      this.friendSpots.push({ kind: 'turtle', object: turtle });
 
       this.turtles.push({
         group: turtle,
@@ -2019,6 +2025,7 @@ export class RiverWorld {
       );
       dfGroup.position.copy(basePos);
       this.animalsGroup.add(dfGroup);
+      this.friendSpots.push({ kind: 'dragonfly', object: dfGroup });
 
       this.dragonflies.push({
         group: dfGroup,
@@ -2130,6 +2137,7 @@ export class RiverWorld {
       capy.scale.set(0.95, 0.95, 0.95);
 
       this.animalsGroup.add(capy);
+      this.friendSpots.push({ kind: 'capybara', object: capy });
     });
   }
 
@@ -2283,6 +2291,7 @@ export class RiverWorld {
       dolph.rotation.y = Math.PI;
 
       this.animalsGroup.add(dolph);
+      this.friendSpots.push({ kind: 'dolphin', object: dolph });
       this.dolphins.push({
         group: dolph,
         tailFluke: flukeMesh,
@@ -2342,6 +2351,7 @@ export class RiverWorld {
       const npcCharacter = new CatfishCharacter(true, fam.color);
       npcCharacter.group.scale.setScalar(fam.scale);
       this.grandLakeCelebrationGroup.add(npcCharacter.group);
+      this.friendSpots.push({ kind: 'family', object: npcCharacter.group });
 
       this.grandLakeCatfish.push({
         character: npcCharacter,

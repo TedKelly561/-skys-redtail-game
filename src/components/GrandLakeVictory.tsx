@@ -4,12 +4,14 @@ import { TreasureCounts } from '../game/engine';
 
 interface GrandLakeVictoryProps {
   counts: TreasureCounts;
+  playerName: string;
   onFreeSwim: () => void;
   onRestart: () => void;
 }
 
 export const GrandLakeVictory: React.FC<GrandLakeVictoryProps> = ({
   counts,
+  playerName,
   onFreeSwim,
   onRestart,
 }) => {
@@ -22,7 +24,8 @@ export const GrandLakeVictory: React.FC<GrandLakeVictoryProps> = ({
         <h2 className="text-3xl font-black text-amber-200 drop-shadow">You made it home!</h2>
 
         <p className="mt-3 mb-4 px-4 py-3 rounded-2xl bg-white/10 text-base font-semibold leading-snug">
-          🐟 “Welcome home, Whiskers! Look at all your treasures!”
+          🐟 “Welcome home, Whiskers!{' '}
+          {playerName ? `Thank you for helping, ${playerName}!` : 'Look at all your treasures!'}”
         </p>
 
         <div className="flex items-center justify-center gap-6 mb-5 text-4xl font-black tabular-nums">

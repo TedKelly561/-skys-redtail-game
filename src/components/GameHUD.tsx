@@ -26,6 +26,11 @@ interface GameHUDProps {
   onVirtualSteer: (x: number, y: number) => void;
   dailyMissions: DailyMissionsState;
   onOpenDailyMissions: () => void;
+  friendsMet: number;
+  friendsTotal: number;
+  /** A friend not met yet is close enough to sniff. */
+  friendNearby: boolean;
+  onOpenFriends: () => void;
 }
 
 /** True on phones and tablets (any coarse pointer), so we show the thumb joystick. */
@@ -119,8 +124,13 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   onVirtualSteer,
   dailyMissions,
   onOpenDailyMissions,
+  friendsMet,
+  friendsTotal,
+  friendNearby,
+  onOpenFriends,
 }) => {
   const isTouch = useIsTouchDevice();
+  const sniffUsable = sniffReady || friendNearby;
   const [isBoosting, setIsBoosting] = useState(false);
 
   const setBoost = (on: boolean) => {
@@ -223,7 +233,8 @@ export const GameHUD: React.FC<GameHUDProps> = ({
         {/* Journey progress (wide screens) */}
         <div className="hidden md:block flex-1 max-w-sm pt-2 px-4">{progressBar}</div>
 
-        {/* Stars, treasures, pause */}
+        {/* Stars, treasures, pause; sticker book below */}
+        <div className="flex flex-col items-end gap-2">
         <div className="flex items-center gap-2">
           <div className={`flex items-center gap-3 px-3 py-1.5 rounded-full ${panel}`}>
             <span className="flex items-center gap-1 text-white">
@@ -242,6 +253,18 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             title="Pause (Esc)"
           >
             <Pause className="w-6 h-6 fill-white" />
+          </button>
+        </div>
+          <button
+            type="button"
+            onClick={onOpenFriends}
+            className={`pointer-events-auto flex items-center gap-1.5 pl-2 pr-3 py-1 rounded-full ${panel} text-white cursor-pointer active:scale-95 transition`}
+            aria-label="Friends sticker book"
+          >
+            <span className="text-xl">📖</span>
+            <span className="text-sm font-black tabular-nums">
+              {friendsMet}/{friendsTotal}
+            </span>
           </button>
         </div>
       </div>
@@ -295,15 +318,20 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             type="button"
             onPointerDown={() => onTriggerSonar()}
             onContextMenu={(e) => e.preventDefault()}
-            disabled={!sniffReady}
-            className={`pointer-events-auto no-callout touch-none w-16 h-16 sm:w-[4.5rem] sm:h-[4.5rem] rounded-full border-4 flex flex-col items-center justify-center shadow-xl transition active:scale-90 cursor-pointer ${
-              sniffReady
+            disabled={!sniffUsable}
+            className={`relative pointer-events-auto no-callout touch-none w-16 h-16 sm:w-[4.5rem] sm:h-[4.5rem] rounded-full border-4 flex flex-col items-center justify-center shadow-xl transition active:scale-90 cursor-pointer ${
+              sniffUsable
                 ? 'bg-amber-400 border-white/80 text-slate-900'
                 : 'bg-slate-700/80 border-white/20 text-white/50 cursor-default'
-            }`}
-            aria-label="Sniff for snacks"
-            title="Sniff for snacks (E)"
+            } ${friendNearby ? 'ring-4 ring-pink-300 animate-pulse' : ''}`}
+            aria-label={friendNearby ? 'Sniff to say hi to a new friend' : 'Sniff for snacks'}
+            title="Sniff for snacks and friends (E)"
           >
+            {friendNearby && (
+              <span className="absolute -top-3 -right-2 text-2xl animate-wiggle" aria-hidden="true">
+                👋
+              </span>
+            )}
             <span className="text-2xl leading-none">👃</span>
             <span className="text-[10px] font-black uppercase mt-0.5">
               {isTouch ? 'Sniff' : 'Sniff · E'}

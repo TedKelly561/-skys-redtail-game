@@ -11,6 +11,18 @@ import {
 import { ItemManager, RiverItem } from './items';
 import { sound } from './audio';
 import { getGameTextures } from './textures';
+import { RingManager } from './rings';
+import { ChestManager } from './chests';
+import {
+  FriendKind,
+  findNearbyNewFriend,
+  friendName,
+  loadMetFriends,
+  renderFriendStickers,
+  saveMetFriends,
+} from './friends';
+import { narrator } from './voice';
+import { cheer, getPlayerName } from './profile';
 import {
   DailyMissionsManager,
   DailyMissionsState,
@@ -52,6 +64,9 @@ export interface GameCallbacks {
   onTreasurePopup: (label: string, points: number, icon: string) => void;
   onDailyMissionsChange: (missionsState: DailyMissionsState) => void;
   onSniffReadyChange: (ready: boolean) => void;
+  onFriendsChange: (met: FriendKind[]) => void;
+  /** An animal not met yet is close enough to sniff (or null when none is). */
+  onNearbyFriendChange: (kind: FriendKind | null) => void;
 }
 
 export class GameEngine {
@@ -70,6 +85,14 @@ export class GameEngine {
   private player: CatfishCharacter;
   private riverWorld: RiverWorld;
   private itemManager: ItemManager;
+  private ringManager: RingManager;
+  private chestManager: ChestManager;
+  public metFriends: Set<FriendKind> = loadMetFriends();
+  private nearbyFriend: FriendKind | null = null;
+  private friendScanTimer: number = 0;
+  private lastFriendHintTime: number = -999;
+  private swimSeconds: number = 0;
+  private friendIntroShown: boolean = false;
   public dailyMissionsManager: DailyMissionsManager;
 
   public playerDistance: number = 0;
@@ -204,6 +227,8 @@ export class GameEngine {
 
     this.riverWorld = new RiverWorld(this.scene);
     this.itemManager = new ItemManager(this.scene);
+    this.ringManager = new RingManager(this.scene);
+    this.chestManager = new ChestManager(this.scene);
 
     // Keep the riverbed crisp when viewed at a low angle.
     const maxAniso = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
@@ -216,6 +241,7 @@ export class GameEngine {
 
     this.loadLocalProgress();
     this.callbacks.onDailyMissionsChange(this.dailyMissionsManager.getState());
+    this.callbacks.onFriendsChange([...this.metFriends]);
 
     const dom = this.renderer.domElement;
     dom.addEventListener('pointerdown', this.onPointerDown);
@@ -370,7 +396,17 @@ export class GameEngine {
     this.sniffActiveTimer = 0;
     this.sniffCooldownTimer = 0;
     this.callbacks.onSniffReadyChange(true);
-    this.callbacks.onTipMessage('Swim down the river to the Grand Lake!');
+    this.setNearbyFriend(null);
+    this.swimSeconds = 0;
+    this.friendIntroShown = false;
+    // Every swim starts with a fresh river: snacks, treasures, rings and chests.
+    this.itemManager.resetItems();
+    this.ringManager.reset();
+    this.chestManager.reset();
+    const name = getPlayerName();
+    this.callbacks.onTipMessage(
+      name ? `Let's go, ${name}! Swim to the Grand Lake!` : 'Swim down the river to the Grand Lake!'
+    );
   }
 
   public pauseGame() {
@@ -396,7 +432,6 @@ export class GameEngine {
     this.depthVelocity = 0;
     this.tummy = 95;
     this.elapsedSeconds = 0;
-    this.itemManager.resetItems();
     this.startGame(0);
   }
 
@@ -409,7 +444,9 @@ export class GameEngine {
   }
 
   public triggerSonarPulse() {
-    if (this.gameState !== 'playing' || this.sniffCooldownTimer > 0) return;
+    if (this.gameState !== 'playing') return;
+    this.tryMeetNearbyFriend();
+    if (this.sniffCooldownTimer > 0) return;
     this.sniffActiveTimer = this.SNIFF_DURATION;
     this.sniffCooldownTimer = this.SNIFF_COOLDOWN;
     this.callbacks.onSniffReadyChange(false);
@@ -417,6 +454,44 @@ export class GameEngine {
     sound.playBarbelSense();
     const res = this.dailyMissionsManager.recordEvent(['use_sonar'], 1);
     this.handleDailyMissionResult(res);
+  }
+
+  /** Pictures of each friend drawn from their in-game models, for the sticker book. */
+  public drawFriendStickers() {
+    return renderFriendStickers(this.riverWorld.friendSpots);
+  }
+
+  private setNearbyFriend(kind: FriendKind | null) {
+    if (kind === this.nearbyFriend) return;
+    this.nearbyFriend = kind;
+    this.callbacks.onNearbyFriendChange(kind);
+  }
+
+  private meetFriend(kind: FriendKind, announce: boolean) {
+    if (this.metFriends.has(kind)) return;
+    this.metFriends.add(kind);
+    saveMetFriends(this.metFriends);
+    this.callbacks.onFriendsChange([...this.metFriends]);
+    if (!announce) return;
+    const name = friendName(kind);
+    this.counts.totalPoints += 20;
+    this.saveLocalProgress();
+    this.callbacks.onCountsChange({ ...this.counts });
+    sound.playMissionComplete();
+    this.callbacks.onTreasurePopup(`Hi, ${name}!`, 20, '👋');
+    narrator.say(`Hi, ${name}! You made a new friend!`, true);
+  }
+
+  private tryMeetNearbyFriend() {
+    const kind = findNearbyNewFriend(
+      this.riverWorld.friendSpots,
+      this.metFriends,
+      this.player.group.position
+    );
+    if (kind) {
+      this.meetFriend(kind, true);
+      this.setNearbyFriend(null);
+    }
   }
 
   public startNextDailyMissionBonusSet() {
@@ -442,9 +517,11 @@ export class GameEngine {
 
       if (res.allClearBonusAwarded) {
         this.callbacks.onTreasurePopup('All missions done!', res.totalBonusPointsEarned, '🎁');
+        narrator.say(cheer('You did all your missions'), true);
       } else if (res.completedMissions.length > 0) {
         const m = res.completedMissions[0];
         this.callbacks.onTreasurePopup('Mission done!', m.rewardPoints, m.icon);
+        narrator.say(cheer('Mission done. Great job'), true);
       }
     }
   }
@@ -581,7 +658,9 @@ export class GameEngine {
 
     this.forwardSpeed = THREE.MathUtils.damp(this.forwardSpeed, targetSpeed, 3.2, dt);
     const distDelta = this.forwardSpeed * dt;
+    const prevDistance = this.playerDistance;
     this.playerDistance += distDelta;
+    this.swimSeconds += dt;
     // The lake ends a little past here; keep Whiskers inside the world while free swimming.
     if (this.playerDistance > this.LAKE_FAR_EDGE) {
       this.playerDistance = this.LAKE_FAR_EDGE;
@@ -669,6 +748,7 @@ export class GameEngine {
     this.camera.lookAt(_vec3B);
 
     this.riverWorld.update(dt, this.playerDistance);
+    this.updateRingsChestsAndFriends(dt, prevDistance);
 
     this.itemManager.updateAndCheckCollisions(
       dt,
@@ -752,6 +832,74 @@ export class GameEngine {
     }
   }
 
+  private updateRingsChestsAndFriends(dt: number, prevDistance: number) {
+    // Bubble rings: each one is a star; a whole trail is a "Perfect!" bonus.
+    const ringEvents = this.ringManager.update(
+      dt,
+      prevDistance,
+      this.playerDistance,
+      this.playerLateral,
+      this.playerDepth
+    );
+    for (const ev of ringEvents) {
+      this.counts.stars += 1;
+      this.counts.totalPoints += ev.trailComplete ? 30 : 5;
+      sound.playCollectTreasure(ev.trailComplete ? 'shimmering_scale' : 'star');
+      if (ev.trailComplete) {
+        this.callbacks.onTreasurePopup('Perfect!', 30, '🌈');
+        narrator.say(cheer('Perfect! All the rings'), true);
+      } else {
+        this.callbacks.onTreasurePopup('Star!', 5, '⭐');
+      }
+      this.handleDailyMissionResult(this.dailyMissionsManager.recordEvent(['collect_star'], 1));
+    }
+
+    // Treasure chests.
+    const opened = this.chestManager.update(dt, this.playerDistance, this.playerLateral);
+    for (let i = 0; i < opened; i++) {
+      this.counts.treasuresTotal += 3;
+      this.counts.riverPearls += 1;
+      this.counts.shimmeringScales += 1;
+      this.counts.lostTrinkets += 1;
+      this.counts.totalPoints += 60;
+      sound.playCollectTreasure('lost_trinket');
+      sound.playMilestone();
+      this.callbacks.onTreasurePopup('Treasure chest!', 60, '🎁');
+      narrator.say(cheer('You found a treasure chest'), true);
+      this.handleDailyMissionResult(
+        this.dailyMissionsManager.recordEvent(['collect_any_treasure'], 3)
+      );
+      this.handleDailyMissionResult(
+        this.dailyMissionsManager.recordEvent(['collect_scale_or_pearl'], 2)
+      );
+    }
+    if (ringEvents.length > 0 || opened > 0) {
+      this.saveLocalProgress();
+      this.callbacks.onCountsChange({ ...this.counts });
+    }
+
+    // Friends: a few times a second, look for an animal not met yet within sniff range.
+    this.friendScanTimer -= dt;
+    if (this.friendScanTimer <= 0) {
+      this.friendScanTimer = 0.25;
+      const kind = findNearbyNewFriend(
+        this.riverWorld.friendSpots,
+        this.metFriends,
+        this.player.group.position
+      );
+      if (kind && kind !== this.nearbyFriend && this.elapsedSeconds - this.lastFriendHintTime > 25) {
+        this.lastFriendHintTime = this.elapsedSeconds;
+        this.callbacks.onTipMessage(`A ${friendName(kind)} is nearby! Sniff to say hi!`);
+      }
+      this.setNearbyFriend(kind);
+    }
+
+    if (!this.friendIntroShown && this.swimSeconds > 9 && this.metFriends.size < 2) {
+      this.friendIntroShown = true;
+      this.callbacks.onTipMessage('Sniff near animals to make friends!');
+    }
+  }
+
   private updateChapter(forceUpdate: boolean) {
     let activeIdx = 0;
     for (let i = CHAPTERS.length - 1; i >= 0; i--) {
@@ -783,8 +931,10 @@ export class GameEngine {
   private triggerGrandLakeCelebration() {
     this.gameState = 'victory';
     this.callbacks.onStateChange('victory');
+    this.setNearbyFriend(null);
     sound.playGrandLakeVictory();
-
+    this.meetFriend('family', false);
+    narrator.say(cheer('You made it home! Great swimming'), true);
   }
 
   public dispose() {
@@ -801,6 +951,9 @@ export class GameEngine {
     this.player.dispose();
     this.riverWorld.dispose();
     this.itemManager.dispose();
+    this.ringManager.dispose();
+    this.chestManager.dispose();
+    narrator.stop();
     this.renderer.dispose();
 
     if (this.renderer.domElement && this.renderer.domElement.parentNode) {

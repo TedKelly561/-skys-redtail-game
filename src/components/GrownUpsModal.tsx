@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { User } from 'firebase/auth';
 import { X, Cloud, CloudOff, LogOut, CheckCircle2 } from 'lucide-react';
 import { PaceMode, TreasureCounts } from '../game/engine';
 import { CHAPTERS } from '../game/worldGen';
+import { MAX_NAME_LENGTH } from '../game/profile';
 
 export const OfficialGoogleSignInButton: React.FC<{
   onClick: () => void;
@@ -49,6 +50,11 @@ interface GrownUpsModalProps {
   highestChapter: number;
   paceMode: PaceMode;
   onChangePace: (pace: PaceMode) => void;
+  playerName: string;
+  onSetName: (name: string) => void;
+  readAloud: boolean;
+  readAloudSupported: boolean;
+  onSetReadAloud: (on: boolean) => void;
 }
 
 export const GrownUpsModal: React.FC<GrownUpsModalProps> = ({
@@ -64,7 +70,17 @@ export const GrownUpsModal: React.FC<GrownUpsModalProps> = ({
   highestChapter,
   paceMode,
   onChangePace,
+  playerName,
+  onSetName,
+  readAloud,
+  readAloudSupported,
+  onSetReadAloud,
 }) => {
+  const [nameDraft, setNameDraft] = useState(playerName);
+  useEffect(() => {
+    if (isOpen) setNameDraft(playerName);
+  }, [isOpen, playerName]);
+
   if (!isOpen) return null;
 
   const chapter = CHAPTERS[Math.max(0, Math.min(CHAPTERS.length - 1, highestChapter - 1))];
@@ -147,6 +163,46 @@ export const GrownUpsModal: React.FC<GrownUpsModalProps> = ({
                 Sign out
               </button>
             </div>
+          )}
+        </section>
+
+        {/* Player name & voice */}
+        <section className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800 mb-3">
+          <label htmlFor="grownups-name" className="block text-sm font-bold text-sky-200 mb-2">
+            Player's name
+          </label>
+          <div className="flex gap-2">
+            <input
+              id="grownups-name"
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              onBlur={() => onSetName(nameDraft)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+              }}
+              maxLength={MAX_NAME_LENGTH}
+              autoComplete="off"
+              placeholder="No name"
+              className="flex-1 min-w-0 px-3 py-2 rounded-xl bg-white text-slate-900 font-semibold outline-none border-2 border-transparent focus:border-teal-400"
+            />
+          </div>
+          <p className="text-[11px] text-slate-400 mt-1.5">
+            Used to cheer the player on. Kept only on this device.
+          </p>
+
+          {readAloudSupported && (
+            <label className="mt-3 flex items-center justify-between gap-3 cursor-pointer">
+              <span>
+                <span className="block text-sm font-bold text-sky-200">Read messages aloud</span>
+                <span className="block text-[11px] text-slate-400">For players who can't read yet</span>
+              </span>
+              <input
+                type="checkbox"
+                checked={readAloud}
+                onChange={(e) => onSetReadAloud(e.target.checked)}
+                className="w-6 h-6 accent-teal-400 cursor-pointer"
+              />
+            </label>
           )}
         </section>
 

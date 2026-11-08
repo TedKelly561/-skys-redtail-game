@@ -14,7 +14,11 @@ import { PauseMenu } from './components/PauseMenu';
 import { GrandLakeVictory } from './components/GrandLakeVictory';
 import { GrownUpsModal } from './components/GrownUpsModal';
 import { DailyMissionsModal } from './components/DailyMissionsModal';
+import { StickerBook } from './components/StickerBook';
 import { sound } from './game/audio';
+import { narrator } from './game/voice';
+import { FRIENDS, FriendKind } from './game/friends';
+import { getPlayerName, hasBeenAskedForName, setPlayerName as storePlayerName } from './game/profile';
 import {
   initAuth,
   googleSignIn,
@@ -53,6 +57,15 @@ export default function App() {
   const [isMuted, setIsMuted] = useState<boolean>(sound.getIsMuted());
   const [paceMode, setPaceMode] = useState<PaceMode>('cozy');
 
+  // Player name, read-aloud voice and river friends
+  const [playerName, setPlayerName] = useState<string>(() => getPlayerName());
+  const [askForName, setAskForName] = useState<boolean>(() => !hasBeenAskedForName());
+  const [readAloud, setReadAloud] = useState<boolean>(() => narrator.getEnabled());
+  const [metFriends, setMetFriends] = useState<FriendKind[]>([]);
+  const [friendNearby, setFriendNearby] = useState<boolean>(false);
+  const [isFriendsOpen, setIsFriendsOpen] = useState<boolean>(false);
+  const [stickers, setStickers] = useState<Partial<Record<FriendKind, string>>>({});
+
   // Google sign-in & cloud save state
   const [user, setUser] = useState<User | null>(null);
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -67,6 +80,7 @@ export default function App() {
 
   const showTip = useCallback((msg: string) => {
     setTipMessage(msg);
+    narrator.say(msg);
     if (tipTimeoutRef.current) {
       window.clearTimeout(tipTimeoutRef.current);
     }
@@ -170,6 +184,8 @@ export default function App() {
       // The depth readout isn't shown any more; skipping it avoids re-rendering the UI every frame.
       onStreamDepthChange: () => {},
       onSniffReadyChange: (ready) => setSniffReady(ready),
+      onFriendsChange: (met) => setMetFriends(met),
+      onNearbyFriendChange: (kind) => setFriendNearby(kind !== null),
       onChapterChange: (chap) => setCurrentChapter(chap),
       onStateChange: (state) => setGameState(state),
       onTimeChange: (sec) => setElapsedSeconds(sec),
@@ -196,12 +212,17 @@ export default function App() {
 
   // Keyboard controls listener
   useEffect(() => {
+    const isTyping = (e: KeyboardEvent) =>
+      e.target instanceof HTMLElement && !!e.target.closest('input, textarea, [contenteditable="true"]');
+
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (isTyping(e)) return;
       const engine = engineRef.current;
-      if (!engine || isGrownUpsOpen || isDailyMissionsOpen) {
+      if (!engine || isGrownUpsOpen || isDailyMissionsOpen || isFriendsOpen) {
         if (e.code === 'Escape') {
           setIsDailyMissionsOpen(false);
           setIsGrownUpsOpen(false);
+          setIsFriendsOpen(false);
         }
         return;
       }
@@ -275,7 +296,7 @@ export default function App() {
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleWindowBlur);
     };
-  }, [gameState, isGrownUpsOpen, isDailyMissionsOpen]);
+  }, [gameState, isGrownUpsOpen, isDailyMissionsOpen, isFriendsOpen]);
 
   const handleLogin = async () => {
     setIsLoggingIn(true);
@@ -303,6 +324,28 @@ export default function App() {
   const handleToggleMute = () => {
     const nextMuted = sound.toggleMute();
     setIsMuted(nextMuted);
+    if (nextMuted) narrator.stop();
+  };
+
+  const handleSetName = (name: string) => {
+    setPlayerName(storePlayerName(name));
+    setAskForName(false);
+  };
+
+  const handleSetReadAloud = (on: boolean) => {
+    narrator.setEnabled(on);
+    setReadAloud(on);
+    if (on) narrator.say('Hello! I will read the messages out loud.', true);
+  };
+
+  // The sticker book draws each friend from its 3D model the first time it opens.
+  const openFriends = () => {
+    const engine = engineRef.current;
+    if (engine?.gameState === 'playing') engine.pauseGame();
+    if (engine && Object.keys(stickers).length === 0) {
+      setStickers(engine.drawFriendStickers());
+    }
+    setIsFriendsOpen(true);
   };
 
   const handleChangePace = (mode: PaceMode) => {
@@ -397,6 +440,12 @@ export default function App() {
           onOpenGrownUps={() => setIsGrownUpsOpen(true)}
           dailyMissions={dailyMissions}
           onOpenDailyMissions={openDailyMissions}
+          playerName={playerName}
+          askForName={askForName}
+          onSetName={handleSetName}
+          friendsMet={metFriends.length}
+          friendsTotal={FRIENDS.length}
+          onOpenFriends={openFriends}
         />
       )}
 
@@ -417,6 +466,10 @@ export default function App() {
           onVirtualSteer={handleVirtualSteer}
           dailyMissions={dailyMissions}
           onOpenDailyMissions={openDailyMissions}
+          friendsMet={metFriends.length}
+          friendsTotal={FRIENDS.length}
+          friendNearby={friendNearby}
+          onOpenFriends={openFriends}
         />
       )}
 
@@ -435,7 +488,12 @@ export default function App() {
 
       {/* Grand Lake Victory Celebration Modal */}
       {gameState === 'victory' && (
-        <GrandLakeVictory counts={counts} onFreeSwim={handleFreeSwim} onRestart={handleRestart} />
+        <GrandLakeVictory
+          counts={counts}
+          playerName={playerName}
+          onFreeSwim={handleFreeSwim}
+          onRestart={handleRestart}
+        />
       )}
 
       {/* Daily Missions & Habit Tracker Modal */}
@@ -462,6 +520,20 @@ export default function App() {
         highestChapter={engineRef.current?.highestChapterReached || currentChapter.id}
         paceMode={paceMode}
         onChangePace={handleChangePace}
+        playerName={playerName}
+        onSetName={handleSetName}
+        readAloud={readAloud}
+        readAloudSupported={narrator.isSupported()}
+        onSetReadAloud={handleSetReadAloud}
+      />
+
+      {/* River friends sticker book */}
+      <StickerBook
+        isOpen={isFriendsOpen}
+        onClose={() => setIsFriendsOpen(false)}
+        metFriends={metFriends}
+        stickers={stickers}
+        playerName={playerName}
       />
     </div>
   );
