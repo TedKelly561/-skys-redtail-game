@@ -188,6 +188,10 @@ export class GameEngine {
   private readonly LAKE_FAR_EDGE = 3000;
   private readonly LAKE_NEAR_EDGE = 2370;
   private freeHeading: number = Math.PI;
+  // Bump: a short knockback (world-space velocity) after hitting a log, caiman or piranhas.
+  private bumpVelX: number = 0;
+  private bumpVelZ: number = 0;
+  private bumpCooldown: number = 0;
   private turnVelocity: number = 0;
   private readonly SNIFF_DURATION = 3;
   private readonly SNIFF_COOLDOWN = 6;
@@ -666,8 +670,8 @@ export class GameEngine {
     const fz = Math.cos(this.freeHeading);
     const p = this.player.group.position;
     const step = this.forwardSpeed * dt;
-    const nx = p.x + fx * step;
-    const nz = p.z + fz * step;
+    const nx = p.x + fx * step + this.bumpVelX * dt;
+    const nz = p.z + fz * step + this.bumpVelZ * dt;
     const next = worldToRiver(nx, nz);
     const inside =
       next.distance > this.LAKE_NEAR_EDGE &&
@@ -771,6 +775,15 @@ export class GameEngine {
     const isBoosting = this.inputs.boost && this.tummy > 8;
     this.player.isBoosting = isBoosting;
 
+    if (this.bumpCooldown > 0) this.bumpCooldown = Math.max(0, this.bumpCooldown - dt);
+    const bumpDecay = Math.exp(-dt * 3.5);
+    this.bumpVelX *= bumpDecay;
+    this.bumpVelZ *= bumpDecay;
+    if (Math.abs(this.bumpVelX) + Math.abs(this.bumpVelZ) < 0.05) {
+      this.bumpVelX = 0;
+      this.bumpVelZ = 0;
+    }
+
     if (this.inputs.sonarPulse) {
       this.triggerSonarPulse();
       this.inputs.sonarPulse = false;
@@ -844,6 +857,10 @@ export class GameEngine {
       this.forwardSpeed = THREE.MathUtils.damp(this.forwardSpeed, targetSpeed, 3.2, dt);
       const distDelta = this.forwardSpeed * dt;
       this.playerDistance += distDelta;
+      if (this.bumpVelX !== 0 || this.bumpVelZ !== 0) {
+        this.playerDistance += (this.bumpVelX * tangent.x + this.bumpVelZ * tangent.z) * dt;
+        this.playerLateral += (this.bumpVelX * normal.x + this.bumpVelZ * normal.z) * dt;
+      }
       this.swimSeconds += dt;
       // The lake ends a little past here; keep Whiskers inside the world while free swimming.
       if (this.playerDistance > this.LAKE_FAR_EDGE) {
@@ -891,10 +908,6 @@ export class GameEngine {
             if (distFromLogCenter > 1.3 && distFromLogCenter < 1.95) {
               this.playerDepth = THREE.MathUtils.lerp(this.playerDepth, log.y, dt * 4);
             }
-          } else {
-            if (Math.abs(dx) < log.length * 0.45 && Math.abs(dy) < log.radius + 0.45) {
-              this.playerDepth = Math.min(-0.45, log.y + log.radius + 0.48);
-            }
           }
         }
       }
@@ -908,6 +921,7 @@ export class GameEngine {
       const worldZ = riverPos.z + normal.z * this.playerLateral;
 
       this.player.group.position.set(worldX, worldY, worldZ);
+      this.checkLogBumps();
 
       const velX = tangent.x * this.forwardSpeed + normal.x * this.lateralVelocity * 0.45;
       const velZ = tangent.z * this.forwardSpeed + normal.z * this.lateralVelocity * 0.45;
@@ -1020,6 +1034,61 @@ export class GameEngine {
     }
   }
 
+  /**
+   * Cartoon bump: Whiskers bounces back from `from` (and a little backward from where he was
+   * swimming), with a boing, a wobble and dizzy stars. `slideDir` adds a sideways push, used to
+   * slide him toward the nearer end of a log so he doesn't get stuck against it.
+   */
+  private bump(from: THREE.Vector3, slideX = 0, slideZ = 0, rise = 0) {
+    if (this.bumpCooldown > 0) return;
+    this.bumpCooldown = 0.7;
+    const p = this.player.group.position;
+    let ax = p.x - from.x;
+    let az = p.z - from.z;
+    const len = Math.hypot(ax, az) || 1;
+    ax /= len;
+    az /= len;
+    const heading = this.player.group.rotation.y;
+    const fx = Math.sin(heading);
+    const fz = Math.cos(heading);
+    this.bumpVelX = ax * 5 - fx * 3 + slideX * 7;
+    this.bumpVelZ = az * 5 - fz * 3 + slideZ * 7;
+    this.forwardSpeed *= 0.2;
+    if (rise !== 0) this.depthVelocity = rise;
+    this.player.bump();
+    sound.playBoing();
+    _vec3B.set((p.x + from.x) / 2, p.y, (p.z + from.z) / 2);
+    this.sparkles.burst(_vec3B, ['#ffffff', '#ffd23f', '#bff6ff'], 14, 3, 0.4);
+  }
+
+  /** Solid logs lie across the river: bump off them instead of swimming through. */
+  private checkLogBumps() {
+    if (this.bumpCooldown > 0) return;
+    const p = this.player.group.position;
+    const logs = this.riverWorld.logObstacles;
+    for (let i = 0; i < logs.length; i++) {
+      const log = logs[i];
+      if (log.isHollow || Math.abs(this.playerDistance - log.distance) > 8) continue;
+      // Solid log axis is the group's local X: (cos y, 0, -sin y).
+      const ax = Math.cos(log.rotationY);
+      const az = -Math.sin(log.rotationY);
+      const half = log.length / 2;
+      const vx = p.x - log.position.x;
+      const vz = p.z - log.position.z;
+      const t = THREE.MathUtils.clamp(vx * ax + vz * az, -half, half);
+      const cx = log.position.x + ax * t;
+      const cz = log.position.z + az * t;
+      const d = Math.hypot(p.x - cx, p.y - log.y, p.z - cz);
+      if (d < log.radius + 0.45) {
+        // Boing up and over (or under, if he hit it from below), sliding toward the nearer end.
+        const side = t >= 0 ? 1 : -1;
+        _vec3A.set(cx, log.y, cz);
+        this.bump(_vec3A, ax * side, az * side, p.y >= log.y - 0.3 ? 12.5 : -9);
+        return;
+      }
+    }
+  }
+
   /** Caimans and piranhas: a warning first, and getting caught only costs one snack. */
   private updateBadGuys(dt: number, isBoosting: boolean, chaseSpeed: number) {
     const events = this.badGuys.update(dt, this.player.group.position, isBoosting, chaseSpeed);
@@ -1031,7 +1100,13 @@ export class GameEngine {
             ev.by === 'caiman' ? 'Shh! A caiman is sleeping. Swim around it!' : 'Grumpy piranhas! Zoom away!'
           );
         }
+      } else if (ev.type === 'bump') {
+        this.bump(ev.at);
       } else if (ev.type === 'caught') {
+        if (ev.at) {
+          this.bumpCooldown = 0;
+          this.bump(ev.at);
+        }
         this.loseSnack(ev.by);
       } else {
         this.lastBadGuyTip = this.elapsedSeconds;

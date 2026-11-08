@@ -379,6 +379,35 @@ class SoundManager {
     });
   }
 
+  /** Springy cartoon "boing" when Whiskers bumps into something. */
+  public playBoing() {
+    this.initCtx();
+    if (!this.ctx || !this.masterGain || this.isMuted) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    const lfo = this.ctx.createOscillator();
+    const lfoGain = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(170, now);
+    osc.frequency.exponentialRampToValueAtTime(420, now + 0.08);
+    osc.frequency.exponentialRampToValueAtTime(230, now + 0.45);
+    // Fast wobble on the pitch gives the spring sound.
+    lfo.frequency.setValueAtTime(22, now);
+    lfoGain.gain.setValueAtTime(60, now);
+    lfoGain.gain.exponentialRampToValueAtTime(1, now + 0.45);
+    lfo.connect(lfoGain);
+    lfoGain.connect(osc.frequency);
+    gain.gain.setValueAtTime(0.32, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+    osc.start(now);
+    lfo.start(now);
+    osc.stop(now + 0.52);
+    lfo.stop(now + 0.52);
+  }
+
   /** A cartoon "chomp" when a bad guy grabs a snack. */
   public playChomp() {
     this.initCtx();

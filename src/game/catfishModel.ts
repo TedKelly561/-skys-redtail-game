@@ -277,6 +277,9 @@ export class CatfishCharacter {
   private eyeMaterial: THREE.MeshPhysicalMaterial;
 
   private tailSwimPhase: number = 0;
+  private dizzyTimer = 0;
+  private lastWobble = 0;
+  private dizzyStars: THREE.Group | null = null;
   private rainbowMode = false;
   private rainbowTime = 0;
   private rainbowMats: {
@@ -694,6 +697,33 @@ export class CatfishCharacter {
     }
   }
 
+  /** Cartoon bump: a quick wobble and dizzy stars circling over his head. */
+  public bump() {
+    this.dizzyTimer = 1.3;
+    if (!this.dizzyStars) {
+      const c = document.createElement('canvas');
+      c.width = c.height = 64;
+      const ctx = c.getContext('2d')!;
+      ctx.font = '52px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('⭐', 32, 36);
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: false });
+      this.dizzyStars = new THREE.Group();
+      for (let i = 0; i < 3; i++) {
+        const s = new THREE.Sprite(mat);
+        s.scale.setScalar(0.35);
+        s.renderOrder = 10;
+        this.dizzyStars.add(s);
+      }
+      this.dizzyStars.position.set(0, 0.75, 0.55);
+      this.group.add(this.dizzyStars);
+    }
+    this.dizzyStars.visible = true;
+  }
+
   public pulseBarbelSonar() {
     this.sonarPulseTimer = 1.0;
   }
@@ -717,7 +747,23 @@ export class CatfishCharacter {
 
     this.bodyMesh.rotation.y = Math.sin(this.tailSwimPhase - 0.6) * 0.055 + turning * 0.15;
 
-    this.group.rotation.z = THREE.MathUtils.lerp(this.group.rotation.z, -turning * 0.38, dt * 8);
+    // Wobble after a bump is added on top of the normal banking.
+    let wobble = 0;
+    if (this.dizzyTimer > 0) {
+      this.dizzyTimer = Math.max(0, this.dizzyTimer - dt);
+      wobble = Math.sin(this.dizzyTimer * 26) * 0.4 * Math.min(1, this.dizzyTimer);
+      if (this.dizzyStars) {
+        this.dizzyStars.rotation.y += dt * 9;
+        this.dizzyStars.children.forEach((s, i) => {
+          const a = (i / 3) * Math.PI * 2;
+          s.position.set(Math.cos(a) * 0.45, Math.sin(this.dizzyTimer * 8 + i) * 0.06, Math.sin(a) * 0.45);
+        });
+        if (this.dizzyTimer === 0) this.dizzyStars.visible = false;
+      }
+    }
+    this.group.rotation.z =
+      THREE.MathUtils.lerp(this.group.rotation.z - this.lastWobble, -turning * 0.38, dt * 8) + wobble;
+    this.lastWobble = wobble;
     this.group.rotation.x = THREE.MathUtils.lerp(this.group.rotation.x, -diving * 0.32, dt * 8);
 
     const leftPecRoll =
