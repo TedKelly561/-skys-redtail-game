@@ -9,12 +9,16 @@ import { GameEngine, GameState, PaceMode, TreasureCounts } from './game/engine';
 import { CHAPTERS, RiverChapterInfo } from './game/worldGen';
 import { DailyMissionsState, DailyMissionsManager } from './game/dailyMissions';
 import { TitleScreen } from './components/TitleScreen';
-import { GameHUD } from './components/GameHUD';
+import { GameHUD, TreasurePopupInfo } from './components/GameHUD';
 import { PauseMenu } from './components/PauseMenu';
 import { GrandLakeVictory } from './components/GrandLakeVictory';
-import { GmailPointTrackerModal } from './components/GmailPointTrackerModal';
+import { GrownUpsModal } from './components/GrownUpsModal';
 import { DailyMissionsModal } from './components/DailyMissionsModal';
+import { StickerBook } from './components/StickerBook';
 import { sound } from './game/audio';
+import { narrator } from './game/voice';
+import { FRIENDS, FriendKind } from './game/friends';
+import { getPlayerName, hasBeenAskedForName, setPlayerName as storePlayerName } from './game/profile';
 import {
   initAuth,
   googleSignIn,
@@ -44,66 +48,63 @@ export default function App() {
     new DailyMissionsManager().getState()
   );
   const [isDailyMissionsOpen, setIsDailyMissionsOpen] = useState<boolean>(false);
-  const [distance, setDistance] = useState<number>(0);
-  const [totalDistance, setTotalDistance] = useState<number>(2650);
   const [progressPercent, setProgressPercent] = useState<number>(0);
-  const [streamDepth, setStreamDepth] = useState<{
-    playerDepthMeters: number;
-    bedDepthMeters: number;
-    featureLabel: string;
-  }>({
-    playerDepthMeters: 2.0,
-    bedDepthMeters: 3.9,
-    featureLabel: 'Flowing River Run',
-  });
   const [currentChapter, setCurrentChapter] = useState<RiverChapterInfo>(CHAPTERS[0]);
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
   const [tipMessage, setTipMessage] = useState<string | null>(null);
-  const [treasurePopup, setTreasurePopup] = useState<{
-    label: string;
-    points: number;
-    icon: string;
-  } | null>(null);
+  const [treasurePopup, setTreasurePopup] = useState<TreasurePopupInfo | null>(null);
+  const [sniffReady, setSniffReady] = useState<boolean>(true);
   const [isMuted, setIsMuted] = useState<boolean>(sound.getIsMuted());
-  const [paceMode, setPaceMode] = useState<PaceMode>('epic');
+  const [paceMode, setPaceMode] = useState<PaceMode>('cozy');
 
-  // Google / Gmail Auth & Cloud Sync State
+  // Player name, read-aloud voice and river friends
+  const [playerName, setPlayerName] = useState<string>(() => getPlayerName());
+  const [askForName, setAskForName] = useState<boolean>(() => !hasBeenAskedForName());
+  const [readAloud, setReadAloud] = useState<boolean>(() => narrator.getEnabled());
+  const [metFriends, setMetFriends] = useState<FriendKind[]>([]);
+  const [friendNearby, setFriendNearby] = useState<boolean>(false);
+  const [isFriendsOpen, setIsFriendsOpen] = useState<boolean>(false);
+  const [stickers, setStickers] = useState<Partial<Record<FriendKind, string>>>({});
+
+  // Google sign-in & cloud save state
   const [user, setUser] = useState<User | null>(null);
-  const [hasGmailToken, setHasGmailToken] = useState<boolean>(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
   const [isCloudSynced, setIsCloudSynced] = useState<boolean>(false);
-  const [isPointTrackerOpen, setIsPointTrackerOpen] = useState<boolean>(false);
+  const [isGrownUpsOpen, setIsGrownUpsOpen] = useState<boolean>(false);
 
   const tipTimeoutRef = useRef<number | null>(null);
   const popupTimeoutRef = useRef<number | null>(null);
   const saveDebounceRef = useRef<number | null>(null);
+  const popupIdRef = useRef<number>(0);
 
   const showTip = useCallback((msg: string) => {
     setTipMessage(msg);
+    narrator.say(msg);
     if (tipTimeoutRef.current) {
       window.clearTimeout(tipTimeoutRef.current);
     }
     tipTimeoutRef.current = window.setTimeout(() => {
       setTipMessage(null);
-    }, 4500);
+    }, 3500);
   }, []);
 
   const showPopup = useCallback((label: string, points: number, icon: string) => {
-    setTreasurePopup({ label, points, icon });
+    popupIdRef.current += 1;
+    setTreasurePopup({ id: popupIdRef.current, label, points, icon });
     if (popupTimeoutRef.current) {
       window.clearTimeout(popupTimeoutRef.current);
     }
     popupTimeoutRef.current = window.setTimeout(() => {
       setTreasurePopup(null);
-    }, 2600);
+    }, 1600);
   }, []);
 
   // Initialize Firebase Auth & load cloud points
   useEffect(() => {
     const unsubscribe = initAuth(
-      async (authUser, token) => {
+      async (authUser) => {
         setUser(authUser);
-        setHasGmailToken(Boolean(token));
         try {
           const cloudData = await loadUserProgress(authUser.uid);
           if (cloudData && engineRef.current) {
@@ -134,7 +135,6 @@ export default function App() {
       },
       () => {
         setUser(null);
-        setHasGmailToken(false);
         setIsCloudSynced(false);
       }
     );
@@ -180,12 +180,12 @@ export default function App() {
       onTummyChange: (val) => setTummy(val),
       onCountsChange: (newCounts) => setCounts(newCounts),
       onDailyMissionsChange: (missionsState) => setDailyMissions(missionsState),
-      onDistanceChange: (dist, tot, pct) => {
-        setDistance(dist);
-        setTotalDistance(tot);
-        setProgressPercent(pct);
-      },
-      onStreamDepthChange: (info) => setStreamDepth(info),
+      onDistanceChange: (_dist, _tot, pct) => setProgressPercent(pct),
+      // The depth readout isn't shown any more; skipping it avoids re-rendering the UI every frame.
+      onStreamDepthChange: () => {},
+      onSniffReadyChange: (ready) => setSniffReady(ready),
+      onFriendsChange: (met) => setMetFriends(met),
+      onNearbyFriendChange: (kind) => setFriendNearby(kind !== null),
       onChapterChange: (chap) => setCurrentChapter(chap),
       onStateChange: (state) => setGameState(state),
       onTimeChange: (sec) => setElapsedSeconds(sec),
@@ -194,6 +194,9 @@ export default function App() {
     });
 
     engineRef.current = engine;
+    if (import.meta.env.DEV) {
+      (window as unknown as { __whiskers?: GameEngine }).__whiskers = engine;
+    }
     setPaceMode(engine.paceMode);
     setCounts({ ...engine.counts });
     setDailyMissions(engine.dailyMissionsManager.getState());
@@ -209,11 +212,17 @@ export default function App() {
 
   // Keyboard controls listener
   useEffect(() => {
+    const isTyping = (e: KeyboardEvent) =>
+      e.target instanceof HTMLElement && !!e.target.closest('input, textarea, [contenteditable="true"]');
+
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (isTyping(e)) return;
       const engine = engineRef.current;
-      if (!engine || isPointTrackerOpen || isDailyMissionsOpen) {
-        if (e.code === 'Escape' && isDailyMissionsOpen) {
+      if (!engine || isGrownUpsOpen || isDailyMissionsOpen || isFriendsOpen) {
+        if (e.code === 'Escape') {
           setIsDailyMissionsOpen(false);
+          setIsGrownUpsOpen(false);
+          setIsFriendsOpen(false);
         }
         return;
       }
@@ -287,19 +296,20 @@ export default function App() {
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleWindowBlur);
     };
-  }, [gameState, isPointTrackerOpen, isDailyMissionsOpen]);
+  }, [gameState, isGrownUpsOpen, isDailyMissionsOpen, isFriendsOpen]);
 
   const handleLogin = async () => {
     setIsLoggingIn(true);
+    setLoginError(null);
     try {
-      const result = await googleSignIn();
-      if (result) {
-        setUser(result.user);
-        setHasGmailToken(Boolean(result.accessToken));
-        showTip(`Signed in with Google as ${result.user.displayName || result.user.email}!`);
-      }
+      const signedInUser = await googleSignIn();
+      setUser(signedInUser);
     } catch (err) {
       console.error('Login failed:', err);
+      const code = (err as { code?: string })?.code || '';
+      if (code !== 'auth/popup-closed-by-user' && code !== 'auth/cancelled-popup-request') {
+        setLoginError('Sign-in did not work. Please allow pop-ups for this page and try again.');
+      }
     } finally {
       setIsLoggingIn(false);
     }
@@ -308,14 +318,34 @@ export default function App() {
   const handleLogout = async () => {
     await logout();
     setUser(null);
-    setHasGmailToken(false);
     setIsCloudSynced(false);
-    showTip('Signed out of Google.');
   };
 
   const handleToggleMute = () => {
     const nextMuted = sound.toggleMute();
     setIsMuted(nextMuted);
+    if (nextMuted) narrator.stop();
+  };
+
+  const handleSetName = (name: string) => {
+    setPlayerName(storePlayerName(name));
+    setAskForName(false);
+  };
+
+  const handleSetReadAloud = (on: boolean) => {
+    narrator.setEnabled(on);
+    setReadAloud(on);
+    if (on) narrator.say('Hello! I will read the messages out loud.', true);
+  };
+
+  // The sticker book draws each friend from its 3D model the first time it opens.
+  const openFriends = () => {
+    const engine = engineRef.current;
+    if (engine?.gameState === 'playing') engine.pauseGame();
+    if (engine && Object.keys(stickers).length === 0) {
+      setStickers(engine.drawFriendStickers());
+    }
+    setIsFriendsOpen(true);
   };
 
   const handleChangePace = (mode: PaceMode) => {
@@ -356,11 +386,7 @@ export default function App() {
   };
 
   const handleFreeSwim = () => {
-    setGameState('playing');
-    if (engineRef.current) {
-      engineRef.current.gameState = 'playing';
-      showTip('Enjoy free swimming in the Grand Lake with your Redtail Catfish family!');
-    }
+    engineRef.current?.startFreeSwim();
   };
 
   const handleTriggerSonar = () => {
@@ -380,6 +406,14 @@ export default function App() {
       engineRef.current.touchSteerX = x;
       engineRef.current.touchSteerY = y;
     }
+  };
+
+  // Opening the missions list mid-swim pauses the game so Whiskers doesn't swim on alone.
+  const openDailyMissions = () => {
+    if (engineRef.current?.gameState === 'playing') {
+      engineRef.current.pauseGame();
+    }
+    setIsDailyMissionsOpen(true);
   };
 
   const handleRequestNextBonusSet = () => {
@@ -402,15 +436,16 @@ export default function App() {
           onStartGame={handleStartGame}
           isMuted={isMuted}
           onToggleMute={handleToggleMute}
-          paceMode={paceMode}
-          onChangePace={handleChangePace}
           counts={counts}
-          user={user}
-          isLoggingIn={isLoggingIn}
-          onLogin={handleLogin}
-          onOpenPointTracker={() => setIsPointTrackerOpen(true)}
+          onOpenGrownUps={() => setIsGrownUpsOpen(true)}
           dailyMissions={dailyMissions}
-          onOpenDailyMissions={() => setIsDailyMissionsOpen(true)}
+          onOpenDailyMissions={openDailyMissions}
+          playerName={playerName}
+          askForName={askForName}
+          onSetName={handleSetName}
+          friendsMet={metFriends.length}
+          friendsTotal={FRIENDS.length}
+          onOpenFriends={openFriends}
         />
       )}
 
@@ -419,24 +454,22 @@ export default function App() {
         <GameHUD
           tummy={tummy}
           counts={counts}
-          distance={distance}
-          totalDistance={totalDistance}
           progressPercent={progressPercent}
           chapter={currentChapter}
           elapsedSeconds={elapsedSeconds}
           tipMessage={tipMessage}
           treasurePopup={treasurePopup}
-          isMuted={isMuted}
-          onToggleMute={handleToggleMute}
+          sniffReady={sniffReady}
           onPause={handlePause}
           onTriggerSonar={handleTriggerSonar}
           onSetBoost={handleSetBoost}
           onVirtualSteer={handleVirtualSteer}
-          user={user}
-          onOpenPointTracker={() => setIsPointTrackerOpen(true)}
-          streamDepth={streamDepth}
           dailyMissions={dailyMissions}
-          onOpenDailyMissions={() => setIsDailyMissionsOpen(true)}
+          onOpenDailyMissions={openDailyMissions}
+          friendsMet={metFriends.length}
+          friendsTotal={FRIENDS.length}
+          friendNearby={friendNearby}
+          onOpenFriends={openFriends}
         />
       )}
 
@@ -449,13 +482,7 @@ export default function App() {
           currentChapterId={currentChapter.id}
           isMuted={isMuted}
           onToggleMute={handleToggleMute}
-          paceMode={paceMode}
-          onChangePace={handleChangePace}
-          counts={counts}
-          tummy={tummy}
-          onOpenPointTracker={() => setIsPointTrackerOpen(true)}
-          dailyMissions={dailyMissions}
-          onOpenDailyMissions={() => setIsDailyMissionsOpen(true)}
+          onOpenGrownUps={() => setIsGrownUpsOpen(true)}
         />
       )}
 
@@ -463,10 +490,9 @@ export default function App() {
       {gameState === 'victory' && (
         <GrandLakeVictory
           counts={counts}
-          elapsedSeconds={elapsedSeconds}
+          playerName={playerName}
           onFreeSwim={handleFreeSwim}
           onRestart={handleRestart}
-          onOpenPointTracker={() => setIsPointTrackerOpen(true)}
         />
       )}
 
@@ -480,19 +506,34 @@ export default function App() {
         onStartSwimIfTitle={() => handleStartGame(0)}
       />
 
-      {/* Gmail Login & Cloud Point Tracker Modal */}
-      <GmailPointTrackerModal
-        isOpen={isPointTrackerOpen}
-        onClose={() => setIsPointTrackerOpen(false)}
+      {/* Grown-ups: cloud save & swim length */}
+      <GrownUpsModal
+        isOpen={isGrownUpsOpen}
+        onClose={() => setIsGrownUpsOpen(false)}
         user={user}
-        hasGmailToken={hasGmailToken}
         isLoggingIn={isLoggingIn}
+        loginError={loginError}
         onLogin={handleLogin}
         onLogout={handleLogout}
-        counts={counts}
-        furthestDistance={engineRef.current?.furthestDistanceReached || distance}
-        highestChapter={engineRef.current?.highestChapterReached || currentChapter.id}
         isCloudSynced={isCloudSynced}
+        counts={counts}
+        highestChapter={engineRef.current?.highestChapterReached || currentChapter.id}
+        paceMode={paceMode}
+        onChangePace={handleChangePace}
+        playerName={playerName}
+        onSetName={handleSetName}
+        readAloud={readAloud}
+        readAloudSupported={narrator.isSupported()}
+        onSetReadAloud={handleSetReadAloud}
+      />
+
+      {/* River friends sticker book */}
+      <StickerBook
+        isOpen={isFriendsOpen}
+        onClose={() => setIsFriendsOpen(false)}
+        metFriends={metFriends}
+        stickers={stickers}
+        playerName={playerName}
       />
     </div>
   );

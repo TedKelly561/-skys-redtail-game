@@ -106,12 +106,13 @@ export function getGameTextures() {
   riverbedAlbedo.colorSpace = THREE.SRGBColorSpace;
   riverbedAlbedo.wrapS = THREE.RepeatWrapping;
   riverbedAlbedo.wrapT = THREE.RepeatWrapping;
-  riverbedAlbedo.repeat.set(6, 90);
+  // ~7m tiles both across and along the river (was stretched 9x along it)
+  riverbedAlbedo.repeat.set(6, 450);
 
   const riverbedBump = new THREE.CanvasTexture(bedBumpCanvas);
   riverbedBump.wrapS = THREE.RepeatWrapping;
   riverbedBump.wrapT = THREE.RepeatWrapping;
-  riverbedBump.repeat.set(6, 90);
+  riverbedBump.repeat.set(6, 450);
 
   // 2. Water Surface Ripple / Caustics Shimmer Map
   const waterCanvas = document.createElement('canvas');

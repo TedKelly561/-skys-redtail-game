@@ -1,10 +1,13 @@
 import * as THREE from 'three';
 import { getGameTextures } from './textures';
 import { CatfishCharacter } from './catfishModel';
+import type { FriendSpot } from './friends';
 
 export interface RiverChapterInfo {
   id: number;
   name: string;
+  /** Picture shown to young players who can't read the name yet. */
+  icon: string;
   subtitle: string;
   startDist: number;
   endDist: number;
@@ -18,11 +21,12 @@ export const CHAPTERS: RiverChapterInfo[] = [
   {
     id: 1,
     name: 'Whispering Shallows',
+    icon: '🐠',
     subtitle: 'Sunlit gravel riffles, grassy banks & neon tetras',
     startDist: 0,
     endDist: 480,
-    waterColor: '#1ca9b0',
-    fogColor: '#c4f2ec',
+    waterColor: '#14a3b4',
+    fogColor: '#a3e2f0',
     ambientLightColor: '#dff8fc',
     description:
       'Glide over sunlit gravel riffles, explore sandy point bars, and dive into your first deep scour pools!',
@@ -30,11 +34,12 @@ export const CHAPTERS: RiverChapterInfo[] = [
   {
     id: 2,
     name: 'Sunlit Lotus Groves',
+    icon: '🐸',
     subtitle: 'Swaying forest boughs, lily pads & hopping frogs',
     startDist: 480,
     endDist: 1050,
-    waterColor: '#199988',
-    fogColor: '#bcefd9',
+    waterColor: '#139a8c',
+    fogColor: '#a8e8d8',
     ambientLightColor: '#d8faea',
     description:
       'Follow the meandering channel past shoreline tree roots, hopping frogs, and paddling turtles!',
@@ -42,11 +47,12 @@ export const CHAPTERS: RiverChapterInfo[] = [
   {
     id: 3,
     name: 'Emerald Canyon Rapids',
+    icon: '🌊',
     subtitle: 'Deep plunge pools, boulder riffles & currents',
     startDist: 1050,
     endDist: 1680,
-    waterColor: '#128e9e',
-    fogColor: '#b0ecf0',
+    waterColor: '#0f8ea6',
+    fogColor: '#98dcec',
     ambientLightColor: '#cff6fa',
     description:
       'Ride sparkling riffle currents and dive into 6-meter canyon scour pools for lost trinkets!',
@@ -54,11 +60,12 @@ export const CHAPTERS: RiverChapterInfo[] = [
   {
     id: 4,
     name: 'Golden Canopy Mangroves',
+    icon: '🐬',
     subtitle: 'Submerged root arches, dragonflies & pink dolphins',
     startDist: 1680,
     endDist: 2350,
-    waterColor: '#1d75a8',
-    fogColor: '#b8dcf5',
+    waterColor: '#1a7fb0',
+    fogColor: '#a2d0f2',
     ambientLightColor: '#d9ecfc',
     description:
       'Boto the pink river dolphin leaps beside you while blue dragonflies dance above the meandering stream!',
@@ -66,11 +73,12 @@ export const CHAPTERS: RiverChapterInfo[] = [
   {
     id: 5,
     name: 'The Great Grand Lake',
+    icon: '🏝️',
     subtitle: 'Sunlit Paradise of the Redtail Catfish',
     startDist: 2350,
     endDist: 3200,
-    waterColor: '#159bc7',
-    fogColor: '#c6f4ff',
+    waterColor: '#1aa5cf',
+    fogColor: '#aee6fa',
     ambientLightColor: '#ebfcff',
     description:
       'You made it! A breathtaking sunlit lake surrounded by lush forest and your Redtail Catfish family!',
@@ -421,6 +429,8 @@ export class RiverWorld {
   public grandLakeCelebrationGroup: THREE.Group;
 
   public currentZones: RiverCurrentZone[] = [];
+  /** Every animal Whiskers can sniff to say hi (see friends.ts). */
+  public friendSpots: FriendSpot[] = [];
   public logObstacles: LogObstacle[] = [];
 
   public windBranches: {
@@ -508,15 +518,15 @@ export class RiverWorld {
     const waterGeo = new THREE.PlaneGeometry(210, 620, 40, 80);
     waterGeo.rotateX(-Math.PI / 2);
     const waterMat = new THREE.MeshPhysicalMaterial({
-      color: new THREE.Color('#22b8c4'),
+      color: new THREE.Color(CHAPTERS[0].waterColor),
       bumpMap: textures.waterNormal,
       bumpScale: 0.06,
       roughness: 0.08,
       metalness: 0.15,
-      clearcoat: 1.0,
+      clearcoat: 0.6,
       clearcoatRoughness: 0.06,
       transparent: true,
-      opacity: 0.62,
+      opacity: 0.45,
     });
     this.waterMesh = new THREE.Mesh(waterGeo, waterMat);
     this.waterMesh.position.set(0, 0, 0);
@@ -732,6 +742,8 @@ export class RiverWorld {
     const cutBankRockColor = new THREE.Color('#5f6e5c');
     const shoreMossColor = new THREE.Color('#58b352');
     const bankGrassColor = new THREE.Color('#4ea845');
+    const underwaterTint = new THREE.Color('#2aa6b8');
+    const _bedTint = new THREE.Color();
 
     for (let i = 0; i <= segments; i++) {
       const dist = i * step;
@@ -761,7 +773,14 @@ export class RiverWorld {
           c = cutBankRockColor;
         }
 
-        colors.push(c.r, c.g, c.b);
+        // Tint everything under the surface toward clear river blue, more as it gets deeper,
+        // so shallow sand stays golden and deep pools glow turquoise.
+        if (vy < 0) {
+          _bedTint.copy(c).lerp(underwaterTint, Math.min(0.6, 0.2 + -vy * 0.09));
+          colors.push(_bedTint.r, _bedTint.g, _bedTint.b);
+        } else {
+          colors.push(c.r, c.g, c.b);
+        }
       }
     }
 
@@ -1522,6 +1541,7 @@ export class RiverWorld {
       frogGroup.rotation.y = side * -1.2;
       padGroup.add(frogGroup);
 
+      this.friendSpots.push({ kind: 'frog', object: frogGroup });
       this.frogs.push({
         group: frogGroup,
         throatSac,
@@ -1765,6 +1785,7 @@ export class RiverWorld {
       );
       schoolGroup.position.copy(centerPos);
       this.animalsGroup.add(schoolGroup);
+      this.friendSpots.push({ kind: 'tetras', object: schoolGroup });
 
       this.fishSchools.push({
         group: schoolGroup,
@@ -1902,6 +1923,7 @@ export class RiverWorld {
       );
       turtle.position.copy(basePos);
       this.animalsGroup.add(turtle);
+      this.friendSpots.push({ kind: 'turtle', object: turtle });
 
       this.turtles.push({
         group: turtle,
@@ -2003,6 +2025,7 @@ export class RiverWorld {
       );
       dfGroup.position.copy(basePos);
       this.animalsGroup.add(dfGroup);
+      this.friendSpots.push({ kind: 'dragonfly', object: dfGroup });
 
       this.dragonflies.push({
         group: dfGroup,
@@ -2114,6 +2137,7 @@ export class RiverWorld {
       capy.scale.set(0.95, 0.95, 0.95);
 
       this.animalsGroup.add(capy);
+      this.friendSpots.push({ kind: 'capybara', object: capy });
     });
   }
 
@@ -2267,6 +2291,7 @@ export class RiverWorld {
       dolph.rotation.y = Math.PI;
 
       this.animalsGroup.add(dolph);
+      this.friendSpots.push({ kind: 'dolphin', object: dolph });
       this.dolphins.push({
         group: dolph,
         tailFluke: flukeMesh,
@@ -2326,6 +2351,7 @@ export class RiverWorld {
       const npcCharacter = new CatfishCharacter(true, fam.color);
       npcCharacter.group.scale.setScalar(fam.scale);
       this.grandLakeCelebrationGroup.add(npcCharacter.group);
+      this.friendSpots.push({ kind: 'family', object: npcCharacter.group });
 
       this.grandLakeCatfish.push({
         character: npcCharacter,
@@ -2336,6 +2362,10 @@ export class RiverWorld {
         name: fam.name,
       });
     });
+  }
+
+  public setWaterColor(hex: string) {
+    (this.waterMesh.material as THREE.MeshPhysicalMaterial).color.set(hex);
   }
 
   public update(dt: number, playerDist: number) {

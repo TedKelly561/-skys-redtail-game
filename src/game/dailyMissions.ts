@@ -142,7 +142,7 @@ const TREASURE_AND_EXPLORE_TEMPLATES: MissionTemplate[] = [
   },
   {
     idSuffix: 'use_sonar_3',
-    title: 'Use Barbel Sniffer 3 Times',
+    title: 'Sniff 3 Times',
     description: "Pulse Whiskers' sensory whiskers (Press E or Sniff button) 3 times.",
     icon: '📡',
     metric: 'use_sonar',

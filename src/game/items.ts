@@ -28,6 +28,8 @@ export interface RiverItem {
   distance: number;
   lateralOffset: number;
   collected: boolean;
+  /** Caught by Whiskers' barbel magnet: stops idling and zips toward him. */
+  attracted: boolean;
   hungerRestore: number;
   pointsValue: number;
   isTreasure: boolean;
@@ -77,6 +79,8 @@ function createScaleGeometry(): THREE.BufferGeometry {
     bevelThickness: 0.026,
   });
 }
+
+const _pullDir = new THREE.Vector3();
 
 /**
  * Item Manager with high-polygon 3D anatomical Minnows, Segmented Larvae,
@@ -514,6 +518,7 @@ export class ItemManager {
       distance: dist,
       lateralOffset: lateral,
       collected: false,
+      attracted: false,
       hungerRestore,
       pointsValue,
       isTreasure,
@@ -524,9 +529,9 @@ export class ItemManager {
   public updateAndCheckCollisions(
     dt: number,
     playerPosition: THREE.Vector3,
+    magnetRadius: number,
     onCollectItem: (item: RiverItem) => void
   ) {
-    const magnetRadius = 3.5;
     const collectRadius = 1.45;
 
     for (let i = 0; i < this.items.length; i++) {
@@ -538,7 +543,10 @@ export class ItemManager {
 
       item.phase += dt * 3.0;
 
-      if (item.type === 'star' || item.isTreasure) {
+      if (item.attracted) {
+        // Spin while flying in; skip the idle bobbing so nothing overrides the pull.
+        item.group.rotation.y += dt * 6.0;
+      } else if (item.type === 'star' || item.isTreasure) {
         item.group.rotation.y += dt * 2.1;
         item.group.position.y = item.baseY + Math.sin(item.phase) * 0.16;
       } else if (item.type === 'larva') {
@@ -560,11 +568,13 @@ export class ItemManager {
       const dist = item.group.position.distanceTo(playerPosition);
 
       if (dist < magnetRadius) {
-        const pullDir = new THREE.Vector3()
-          .subVectors(playerPosition, item.group.position)
-          .normalize();
-        const pullSpeed = (magnetRadius - dist) * 8.0;
-        item.group.position.addScaledVector(pullDir, pullSpeed * dt);
+        item.attracted = true;
+      }
+      if (item.attracted) {
+        // Faster than Whiskers can swim (even boosting), and never overshoots him.
+        _pullDir.subVectors(playerPosition, item.group.position).normalize();
+        const pullSpeed = 14.0 + dist * 2.0;
+        item.group.position.addScaledVector(_pullDir, Math.min(dist, pullSpeed * dt));
       }
 
       if (dist < collectRadius) {
@@ -592,6 +602,7 @@ export class ItemManager {
   public resetItems() {
     this.items.forEach((item) => {
       item.collected = false;
+      item.attracted = false;
       item.group.visible = true;
       item.group.position.copy(item.position);
     });

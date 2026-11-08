@@ -1,309 +1,294 @@
 import React, { useState } from 'react';
-import {
-  Play,
-  Volume2,
-  VolumeX,
-  Compass,
-  Sparkles,
-  Fish,
-  Trophy,
-  Gem,
-  CalendarCheck,
-  Flame,
-} from 'lucide-react';
-import { User } from 'firebase/auth';
+import { Play, Volume2, VolumeX, Map as MapIcon, Settings, Pencil } from 'lucide-react';
 import { CHAPTERS } from '../game/worldGen';
-import { PaceMode, TreasureCounts } from '../game/engine';
+import { TreasureCounts } from '../game/engine';
 import { DailyMissionsState } from '../game/dailyMissions';
-import { OfficialGoogleSignInButton } from './GmailPointTrackerModal';
+import { useIsTouchDevice } from './GameHUD';
+import { MAX_NAME_LENGTH } from '../game/profile';
 
 interface TitleScreenProps {
   onStartGame: (chapterIdx: number) => void;
   isMuted: boolean;
   onToggleMute: () => void;
-  paceMode: PaceMode;
-  onChangePace: (pace: PaceMode) => void;
   counts: TreasureCounts;
-  user: User | null;
-  isLoggingIn: boolean;
-  onLogin: () => void;
-  onOpenPointTracker: () => void;
+  onOpenGrownUps: () => void;
   dailyMissions: DailyMissionsState;
   onOpenDailyMissions: () => void;
+  playerName: string;
+  /** First visit on this device: ask for the player's name before showing Play. */
+  askForName: boolean;
+  onSetName: (name: string) => void;
+  friendsMet: number;
+  friendsTotal: number;
+  onOpenFriends: () => void;
 }
+
+/** "What's your name?" card. A grown-up can type it; Skip is always available. */
+const NameCard: React.FC<{
+  initial: string;
+  onDone: (name: string) => void;
+}> = ({ initial, onDone }) => {
+  const [value, setValue] = useState(initial);
+  return (
+    <form
+      className="pointer-events-auto w-full max-w-xs p-4 rounded-3xl bg-slate-950/85 border-2 border-white/15 shadow-2xl flex flex-col items-center gap-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onDone(value);
+      }}
+    >
+      <label htmlFor="player-name" className="text-xl font-black text-white">
+        👋 What's your name?
+      </label>
+      <input
+        id="player-name"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        maxLength={MAX_NAME_LENGTH}
+        autoComplete="off"
+        autoCapitalize="words"
+        enterKeyHint="go"
+        placeholder="Type your name"
+        className="w-full px-4 py-3 rounded-2xl bg-white text-slate-900 text-2xl font-bold text-center outline-none border-4 border-teal-300 focus:border-amber-300 placeholder:text-slate-400 placeholder:text-lg"
+      />
+      <button
+        type="submit"
+        className="w-full py-3 rounded-2xl bg-gradient-to-b from-emerald-400 to-emerald-600 border-4 border-white/80 text-white text-xl font-black transition active:scale-95 cursor-pointer"
+      >
+        That's me!
+      </button>
+      <button
+        type="button"
+        onClick={() => onDone('')}
+        className="text-sm font-semibold text-white/60 hover:text-white cursor-pointer"
+      >
+        Skip
+      </button>
+    </form>
+  );
+};
+
+/** Five big picture cards so a child can jump to their favorite part of the river. */
+export const PlacePicker: React.FC<{
+  onPick: (idx: number) => void;
+  currentChapterId?: number;
+}> = ({ onPick, currentChapterId }) => (
+  <div className="grid grid-cols-5 gap-2 w-full">
+    {CHAPTERS.map((ch, idx) => (
+      <button
+        key={ch.id}
+        onClick={() => onPick(idx)}
+        className={`aspect-square rounded-2xl border-2 flex flex-col items-center justify-center transition active:scale-90 cursor-pointer ${
+          currentChapterId === ch.id
+            ? 'bg-teal-500/30 border-teal-300'
+            : 'bg-slate-900/80 border-white/15 hover:bg-slate-800'
+        }`}
+        title={ch.name}
+        aria-label={ch.name}
+      >
+        <span className="text-3xl sm:text-4xl leading-none">{ch.icon}</span>
+        <span className="text-xs font-black text-white/70 mt-1">{ch.id}</span>
+      </button>
+    ))}
+  </div>
+);
 
 export const TitleScreen: React.FC<TitleScreenProps> = ({
   onStartGame,
   isMuted,
   onToggleMute,
-  paceMode,
-  onChangePace,
   counts,
-  user,
-  isLoggingIn,
-  onLogin,
-  onOpenPointTracker,
+  onOpenGrownUps,
   dailyMissions,
   onOpenDailyMissions,
+  playerName,
+  askForName,
+  onSetName,
+  friendsMet,
+  friendsTotal,
+  onOpenFriends,
 }) => {
-  const [selectedChapter, setSelectedChapter] = useState(0);
-  const [showChapters, setShowChapters] = useState(false);
+  const [showPlaces, setShowPlaces] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const showNameCard = askForName || editingName;
+  const isTouch = useIsTouchDevice();
 
-  const completedMissionsCount = dailyMissions.missions.filter((m) => m.completed).length;
-  const totalMissionsCount = dailyMissions.missions.length;
+  const doneMissions = dailyMissions.missions.filter((m) => m.completed).length;
+  const totalMissions = dailyMissions.missions.length;
+
+  const pill =
+    'pointer-events-auto flex items-center gap-2 px-3.5 py-2 rounded-full bg-slate-950/80 border border-white/10 text-white text-sm font-bold shadow-lg transition active:scale-95 cursor-pointer';
 
   return (
-    <div className="absolute inset-0 z-30 pointer-events-auto flex flex-col justify-between p-5 md:p-8 select-none">
-      {/* Top Bar with Gmail Login, Daily Missions, Points, Treasures & Sound */}
-      <div className="flex flex-wrap items-center justify-between gap-3 w-full max-w-6xl mx-auto">
-        <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900/75 border border-emerald-500/30 text-emerald-200 text-xs font-medium tracking-wide">
-          <Fish className="w-4 h-4 text-orange-400" />
-          <span>Cozy 3D Redtail Catfish Adventure</span>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2.5">
-          {/* Daily Missions & Streak Button */}
-          <button
-            onClick={onOpenDailyMissions}
-            className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-950/85 hover:bg-emerald-900/85 border border-emerald-400/50 text-emerald-200 text-xs font-bold tabular-nums transition cursor-pointer shadow-lg"
-            title="View Today's Easy Daily Missions & Habit Streak"
-          >
-            <CalendarCheck className="w-3.5 h-3.5 text-emerald-400" />
-            <span>
-              Daily Missions ({completedMissionsCount}/{totalMissionsCount})
-            </span>
-            {dailyMissions.streakDays > 0 && (
-              <>
-                <span className="text-emerald-500/60">|</span>
-                <span className="flex items-center gap-1 text-orange-300">
-                  <Flame className="w-3.5 h-3.5 fill-orange-400 text-orange-400" />
-                  {dailyMissions.streakDays}d Streak
-                </span>
-              </>
-            )}
-          </button>
-
-          {/* Points & Treasures Pill (opens Point Tracker Modal) */}
-          <button
-            onClick={onOpenPointTracker}
-            className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-amber-950/80 hover:bg-amber-900/80 border border-amber-400/50 text-amber-200 text-xs font-bold tabular-nums transition cursor-pointer shadow-lg"
-          >
-            <Trophy className="w-3.5 h-3.5 text-amber-400" />
-            <span>{counts.totalPoints.toLocaleString()} pts</span>
-            <span className="text-amber-500/60">|</span>
-            <Gem className="w-3.5 h-3.5 text-teal-300" />
-            <span>{counts.treasuresTotal} Treasures</span>
-            <span className="text-amber-500/60">|</span>
-            <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
-            <span>{counts.stars} ⭐</span>
-          </button>
-
-          {/* Official Google / Gmail Sign-In or User Profile Pill */}
-          {!user ? (
-            <OfficialGoogleSignInButton
-              onClick={onLogin}
-              disabled={isLoggingIn}
-              label={isLoggingIn ? 'Signing in...' : 'Sign in with Google'}
-            />
-          ) : (
-            <button
-              onClick={onOpenPointTracker}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/85 hover:bg-slate-800 border border-teal-400/50 text-teal-200 text-xs font-semibold transition cursor-pointer"
-              title="Open Gmail Point Tracker"
-            >
-              {user.photoURL ? (
-                <img
-                  src={user.photoURL}
-                  alt={user.displayName || 'Explorer'}
-                  className="w-4 h-4 rounded-full"
-                  referrerPolicy="no-referrer"
-                />
-              ) : (
-                <span className="w-4 h-4 rounded-full bg-teal-500 text-slate-950 font-bold flex items-center justify-center text-[10px]">
-                  {(user.displayName || user.email || 'E')[0].toUpperCase()}
-                </span>
-              )}
-              <span className="max-w-[130px] truncate">{user.displayName || user.email}</span>
-            </button>
+    <div className="absolute inset-0 z-30 flex flex-col justify-between p-4 sm:p-6 select-none">
+      {/* Top bar */}
+      <div className="flex items-center justify-between gap-2 w-full max-w-5xl mx-auto">
+        <button onClick={onOpenDailyMissions} className={pill} aria-label="Today's missions">
+          <span className="text-lg leading-none">🎯</span>
+          <span className="tabular-nums">
+            {doneMissions}/{totalMissions}
+          </span>
+          {dailyMissions.streakDays > 0 && (
+            <span className="text-orange-300 tabular-nums">🔥{dailyMissions.streakDays}</span>
           )}
+        </button>
 
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onOpenGrownUps}
+            className={`${pill} text-xs font-semibold text-white/80`}
+            title="Save progress & settings"
+          >
+            <Settings className="w-4 h-4" />
+            <span>Grown-ups</span>
+          </button>
           <button
             onClick={onToggleMute}
-            className="p-2 rounded-full bg-slate-900/75 border border-slate-700 text-slate-200 hover:text-white hover:bg-slate-800 transition active:scale-95 cursor-pointer"
-            aria-label="Toggle Mute"
-            title={isMuted ? 'Unmute Sound' : 'Mute Sound'}
+            className={`${pill} px-2.5`}
+            aria-label={isMuted ? 'Turn sound on' : 'Turn sound off'}
           >
             {isMuted ? (
-              <VolumeX className="w-4 h-4 text-red-400" />
+              <VolumeX className="w-5 h-5 text-rose-300" />
             ) : (
-              <Volume2 className="w-4 h-4 text-emerald-400" />
+              <Volume2 className="w-5 h-5 text-emerald-300" />
             )}
           </button>
         </div>
       </div>
 
-      {/* Hero Centerpiece: Bespoke SVG Title Lockup */}
-      <div className="w-full max-w-xl mx-auto text-center flex flex-col items-center">
-        <div className="relative mb-2">
-          <svg
-            viewBox="0 0 600 130"
-            className="w-full max-w-lg filter drop-shadow-[0_8px_16px_rgba(0,0,0,0.6)]"
+      {/* Center */}
+      <div className="w-full max-w-md mx-auto flex flex-col items-center text-center">
+        <svg
+          viewBox="0 0 600 130"
+          className="w-full max-w-lg drop-shadow-[0_6px_10px_rgba(0,0,0,0.45)]"
+          role="img"
+          aria-label="Whiskers' River Journey"
+        >
+          <defs>
+            <linearGradient id="titleGoldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#fff3b0" />
+              <stop offset="45%" stopColor="#ffd166" />
+              <stop offset="100%" stopColor="#ff7b00" />
+            </linearGradient>
+          </defs>
+          <path
+            d="M 30 115 Q 120 128 220 115 T 410 115 T 570 118"
+            fill="none"
+            stroke="#2dd4bf"
+            strokeWidth="5"
+            strokeLinecap="round"
+          />
+          <text
+            x="300"
+            y="60"
+            textAnchor="middle"
+            fontFamily="system-ui, -apple-system, sans-serif"
+            fontWeight="900"
+            fontSize="54"
+            fill="url(#titleGoldGrad)"
+            stroke="#7c2d12"
+            strokeWidth="2"
+            paintOrder="stroke"
+            letterSpacing="2"
           >
-            <defs>
-              <linearGradient id="titleGoldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#fff3b0" />
-                <stop offset="45%" stopColor="#ffd166" />
-                <stop offset="100%" stopColor="#ff7b00" />
-              </linearGradient>
-            </defs>
+            WHISKERS'
+          </text>
+          <text
+            x="300"
+            y="104"
+            textAnchor="middle"
+            fontFamily="system-ui, -apple-system, sans-serif"
+            fontWeight="800"
+            fontSize="34"
+            fill="#ffffff"
+            stroke="#0f172a"
+            strokeWidth="2"
+            paintOrder="stroke"
+            letterSpacing="3"
+          >
+            RIVER JOURNEY
+          </text>
+        </svg>
 
-            <path
-              d="M 30 115 Q 120 128 220 115 T 410 115 T 570 118"
-              fill="none"
-              stroke="#2dd4bf"
-              strokeWidth="4"
-              strokeLinecap="round"
-              opacity="0.85"
+        {showNameCard ? (
+          <div className="mt-2 w-full flex justify-center">
+            <NameCard
+              initial={playerName}
+              onDone={(name) => {
+                onSetName(name);
+                setEditingName(false);
+              }}
             />
-
-            <text
-              x="300"
-              y="60"
-              textAnchor="middle"
-              fontFamily="system-ui, -apple-system, sans-serif"
-              fontWeight="900"
-              fontSize="48"
-              fill="url(#titleGoldGrad)"
-              letterSpacing="2"
-            >
-              WHISKERS'
-            </text>
-
-            <text
-              x="300"
-              y="104"
-              textAnchor="middle"
-              fontFamily="system-ui, -apple-system, sans-serif"
-              fontWeight="800"
-              fontSize="34"
-              fill="#ffffff"
-              letterSpacing="3"
-            >
-              RIVER JOURNEY
-            </text>
-          </svg>
-
-          <div className="inline-block mt-1 px-4 py-1 rounded-full bg-orange-950/85 border border-orange-500/40 text-orange-200 text-xs tracking-wider uppercase font-semibold">
-            Redtail Catfish Treasure & Foraging Quest
           </div>
-        </div>
+        ) : (
+          <>
+            {playerName ? (
+              <button
+                onClick={() => setEditingName(true)}
+                className="pointer-events-auto mt-1 mb-4 flex items-center gap-2 text-white text-2xl font-black drop-shadow-[0_2px_3px_rgba(0,0,0,0.8)] cursor-pointer"
+                aria-label={`Hi, ${playerName}! Tap to change your name`}
+              >
+                <span>Hi, {playerName}! 👋</span>
+                <Pencil className="w-4 h-4 text-white/70" />
+              </button>
+            ) : (
+              <p className="mt-1 mb-5 text-white text-base sm:text-lg font-bold drop-shadow-[0_2px_3px_rgba(0,0,0,0.8)]">
+                Help Whiskers swim home to the Grand Lake! 🏝️
+              </p>
+            )}
 
-        <p className="text-slate-100 text-sm md:text-base max-w-lg mx-auto mb-5 text-center leading-relaxed drop-shadow-[0_2px_4px_rgba(0,0,0,0.85)]">
-          Guide <strong className="text-orange-400 font-semibold">Whiskers the Redtail Catfish</strong> down sunlit Amazon bends! Snack on plentiful larvae & silver minnows to keep your hunger bar full, collect smooth jade stones, shimmering scales & lost trinkets, and swim to the Great Grand Lake!
-        </p>
+            <button
+              onClick={() => onStartGame(0)}
+              className="pointer-events-auto w-full max-w-xs py-5 rounded-3xl bg-gradient-to-b from-emerald-400 to-emerald-600 border-4 border-white/80 text-white text-3xl font-black shadow-2xl shadow-emerald-900/40 flex items-center justify-center gap-3 transition active:scale-95 hover:brightness-110 cursor-pointer"
+            >
+              <Play className="w-8 h-8 fill-white" />
+              <span>Play</span>
+            </button>
 
-        {/* Action Buttons */}
-        <div className="flex flex-col sm:flex-row flex-wrap items-center gap-3 w-full justify-center">
-          <button
-            onClick={() => onStartGame(selectedChapter)}
-            className="w-full sm:w-auto px-8 py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 text-slate-950 font-bold text-base md:text-lg shadow-lg shadow-emerald-500/25 hover:from-emerald-400 hover:to-teal-400 transition active:scale-95 flex items-center justify-center gap-2 cursor-pointer border border-emerald-300/40"
-          >
-            <Play className="w-5 h-5 fill-slate-950" />
-            <span>Start River Swim</span>
-          </button>
-
-          <button
-            onClick={() => setShowChapters(!showChapters)}
-            className="w-full sm:w-auto px-5 py-3.5 rounded-2xl bg-slate-900/85 hover:bg-slate-800 text-slate-200 font-semibold text-sm border border-slate-700/80 transition active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
-          >
-            <Compass className="w-4 h-4 text-teal-400" />
-            <span>Choose Chapter ({CHAPTERS[selectedChapter].name})</span>
-          </button>
-
-          <button
-            onClick={onOpenDailyMissions}
-            className="w-full sm:w-auto px-5 py-3.5 rounded-2xl bg-amber-950/85 hover:bg-amber-900/90 text-amber-200 font-bold text-sm border border-amber-500/50 transition active:scale-95 flex items-center justify-center gap-2 cursor-pointer shadow-lg"
-          >
-            <CalendarCheck className="w-4 h-4 text-amber-400" />
-            <span>
-              Today's Missions ({completedMissionsCount}/{totalMissionsCount})
-            </span>
-          </button>
-        </div>
-
-        {/* Chapter Selection Drawer */}
-        {showChapters && (
-          <div className="mt-4 p-4 rounded-2xl bg-slate-950/90 border border-teal-500/30 max-w-lg w-full text-left shadow-2xl">
-            <div className="text-xs font-bold text-teal-300 uppercase tracking-wider mb-2">
-              Select River Reach to Explore:
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                onClick={() => setShowPlaces((v) => !v)}
+                className="pointer-events-auto flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-slate-950/80 border border-white/15 text-white text-base font-bold shadow-lg transition active:scale-95 cursor-pointer"
+              >
+                <MapIcon className="w-5 h-5 text-teal-300" />
+                <span>Pick a place</span>
+              </button>
+              <button
+                onClick={onOpenFriends}
+                className="pointer-events-auto flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-slate-950/80 border border-white/15 text-white text-base font-bold shadow-lg transition active:scale-95 cursor-pointer"
+              >
+                <span className="text-lg leading-none">📖</span>
+                <span>
+                  Friends{' '}
+                  <span className="tabular-nums text-amber-300">
+                    {friendsMet}/{friendsTotal}
+                  </span>
+                </span>
+              </button>
             </div>
-            <div className="grid grid-cols-1 gap-1.5 max-h-48 overflow-y-auto pr-1">
-              {CHAPTERS.map((chap, idx) => (
-                <button
-                  key={chap.id}
-                  onClick={() => {
-                    setSelectedChapter(idx);
-                    setShowChapters(false);
-                  }}
-                  className={`p-2.5 rounded-xl text-left text-xs transition flex items-center justify-between cursor-pointer ${
-                    selectedChapter === idx
-                      ? 'bg-teal-900/70 border border-teal-400/60 text-white font-bold'
-                      : 'bg-slate-900/50 hover:bg-slate-800 text-slate-300 border border-transparent'
-                  }`}
-                >
-                  <div>
-                    <div className="font-semibold text-sm text-slate-100">
-                      {chap.id}. {chap.name}
-                    </div>
-                    <div className="text-[11px] text-slate-400">{chap.subtitle}</div>
-                  </div>
-                  {idx === 4 && (
-                    <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-bold">
-                      Paradise
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
-          </div>
+
+            {showPlaces && (
+              <div className="mt-3 w-full p-3 rounded-3xl bg-slate-950/85 border border-white/10 shadow-2xl">
+                <PlacePicker onPick={onStartGame} />
+              </div>
+            )}
+
+            {(counts.stars > 0 || counts.treasuresTotal > 0) && (
+              <div className="mt-4 flex items-center gap-4 px-4 py-2 rounded-full bg-slate-950/70 border border-white/10 text-white font-black text-lg tabular-nums">
+                <span>⭐ {counts.stars}</span>
+                <span>💎 {counts.treasuresTotal}</span>
+              </div>
+            )}
+          </>
         )}
-
-        {/* Journey Pacing Selection */}
-        <div className="mt-4 flex items-center gap-2 p-1.5 rounded-xl bg-slate-950/75 border border-slate-800 text-xs">
-          <span className="text-slate-400 px-2 font-medium">Session Length:</span>
-          <button
-            onClick={() => onChangePace('epic')}
-            className={`px-3 py-1 rounded-lg font-semibold transition cursor-pointer ${
-              paceMode === 'epic'
-                ? 'bg-orange-500 text-slate-950 shadow'
-                : 'text-slate-300 hover:text-white'
-            }`}
-          >
-            30-Min Grand Expedition
-          </button>
-          <button
-            onClick={() => onChangePace('cozy')}
-            className={`px-3 py-1 rounded-lg font-semibold transition cursor-pointer ${
-              paceMode === 'cozy'
-                ? 'bg-orange-500 text-slate-950 shadow'
-                : 'text-slate-300 hover:text-white'
-            }`}
-          >
-            10-Min Quick Splash
-          </button>
-        </div>
       </div>
 
-      {/* Flat Control Hints at Bottom */}
-      <div className="w-full max-w-2xl mx-auto text-center">
-        <div className="inline-flex flex-wrap items-center justify-center gap-2 px-4 py-2 rounded-xl bg-slate-950/85 border border-slate-800 text-slate-300 text-xs font-mono tracking-wide">
-          <span>WASD / Arrows / Drag: Steer & Dive</span>
-          <span className="text-slate-600">·</span>
-          <span>Space: Tail Boost</span>
-          <span className="text-slate-600">·</span>
-          <span>E: Barbel Sniffer</span>
-          <span className="text-slate-600">·</span>
-          <span>Esc: Pause</span>
+      {/* How to play */}
+      <div className="w-full flex justify-center">
+        <div className="px-4 py-2 rounded-2xl bg-slate-950/75 border border-white/10 text-white/90 text-sm font-semibold text-center">
+          {isTouch
+            ? '🐟 Move the fish button to swim · ⚡ Zoom · 👃 Sniff for snacks and friends'
+            : '⬅️ ➡️ ⬆️ ⬇️ Swim · Space Zoom · E Sniff for snacks and friends · Esc Pause'}
         </div>
       </div>
     </div>
