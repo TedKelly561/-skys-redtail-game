@@ -12,6 +12,7 @@ interface RiverRing {
   distance: number;
   lateral: number;
   depth: number;
+  scale: number;
   state: 'waiting' | 'passed' | 'missed';
   fade: number;
   phase: number;
@@ -31,7 +32,7 @@ const RING_SPACING = 8;
 const HIT_RADIUS = 1.8;
 
 export class RingManager {
-  private group = new THREE.Group();
+  public group = new THREE.Group();
   private trails: RingTrail[] = [];
   private rings: RiverRing[] = [];
   private torusGeo = new THREE.TorusGeometry(1.25, 0.16, 12, 40);
@@ -57,9 +58,13 @@ export class RingManager {
       const maxLat = w / 2 - 3;
       const lateral = THREE.MathUtils.clamp(baseLateral + Math.sin(t * Math.PI) * swing, -maxLat, maxLat);
       const bed = getRiverBedElevationAt(dist, lateral);
-      // A gentle dip in the middle of the trail; always clear of the riverbed and surface.
-      const wanted = -1.4 - Math.sin(t * Math.PI) * 1.2;
-      const depth = Math.min(-1.1, Math.max(wanted, bed + 1.5));
+      // A gentle dip in the middle of the trail; always fully under water and clear of the
+      // riverbed. In shallow spots the ring shrinks so it still fits.
+      const waterDepth = -bed;
+      const scale = THREE.MathUtils.clamp((waterDepth - 0.5) / 2.6, 0.45, 1);
+      const r = 1.37 * scale;
+      const wanted = -1.6 - Math.sin(t * Math.PI) * 1.2;
+      const depth = THREE.MathUtils.clamp(wanted, bed + r + 0.15, -r - 0.2);
 
       // Strong warm color so the rings still read as gold through the teal water.
       const ringMat = new THREE.MeshStandardMaterial({
@@ -82,6 +87,7 @@ export class RingManager {
       g.add(new THREE.Mesh(this.torusGeo, ringMat), new THREE.Mesh(this.glowGeo, glowMat));
       g.position.set(position.x + normal.x * lateral, depth, position.z + normal.z * lateral);
       g.rotation.y = Math.atan2(tangent.x, tangent.z);
+      g.scale.setScalar(scale);
       this.group.add(g);
 
       const ring: RiverRing = {
@@ -91,6 +97,7 @@ export class RingManager {
         distance: dist,
         lateral,
         depth,
+        scale,
         state: 'waiting',
         fade: 0,
         phase: Math.random() * Math.PI * 2,
@@ -120,10 +127,10 @@ export class RingManager {
 
         if (ring.state === 'waiting') {
           const s = 1 + Math.sin(ring.phase) * 0.05;
-          ring.group.scale.setScalar(s);
+          ring.group.scale.setScalar(s * ring.scale);
           if (prevDist < ring.distance && currDist >= ring.distance) {
             const off = Math.hypot(lateral - ring.lateral, depth - ring.depth);
-            if (off < HIT_RADIUS) {
+            if (off < HIT_RADIUS * ring.scale + 0.35) {
               ring.state = 'passed';
               trail.passed += 1;
               events.push({ trailComplete: trail.passed === RINGS_PER_TRAIL });
@@ -133,7 +140,7 @@ export class RingManager {
           }
         } else if (ring.state === 'passed' && ring.group.visible) {
           ring.fade = Math.min(1, ring.fade + dt * 2.5);
-          ring.group.scale.setScalar(1 + ring.fade * 0.8);
+          ring.group.scale.setScalar((1 + ring.fade * 0.8) * ring.scale);
           ring.ringMat.opacity = 1 - ring.fade;
           ring.glowMat.opacity = 0.5 * (1 - ring.fade);
           if (ring.fade >= 1) ring.group.visible = false;
@@ -153,7 +160,7 @@ export class RingManager {
         ring.state = 'waiting';
         ring.fade = 0;
         ring.group.visible = true;
-        ring.group.scale.setScalar(1);
+        ring.group.scale.setScalar(ring.scale);
         ring.ringMat.opacity = 1;
         ring.ringMat.emissiveIntensity = 1.5;
         ring.glowMat.opacity = 0.18;

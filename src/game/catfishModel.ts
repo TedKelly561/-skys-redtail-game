@@ -244,6 +244,8 @@ function createSculptedCatfishBodyGeometry(): THREE.BufferGeometry {
   return geometry;
 }
 
+const _barbelTarget = new THREE.Vector3();
+
 /**
  * Procedural 3D Redtail Catfish Character (Phractocephalus hemioliopterus)
  * With high-polygon smooth anatomy, wet clearcoat PBR skin, 3D volumetric swaying barbels, and smooth beveled fins.
@@ -270,6 +272,7 @@ export class CatfishCharacter {
   private bodyMaterial: THREE.MeshPhysicalMaterial;
   private redFinMaterial: THREE.MeshPhysicalMaterial;
   private dorsalFinMaterial: THREE.MeshPhysicalMaterial;
+  private darkFinMaterial: THREE.MeshPhysicalMaterial;
   private barbelMaterial: THREE.MeshPhysicalMaterial;
   private eyeMaterial: THREE.MeshPhysicalMaterial;
 
@@ -299,7 +302,7 @@ export class CatfishCharacter {
         : npcColorVariation === 2
         ? '#ff2e24'
         : '#ff491f'
-      : '#ff3818';
+      : '#ff4a1a';
 
     this.redFinMaterial = new THREE.MeshPhysicalMaterial({
       map: finTex,
@@ -313,11 +316,23 @@ export class CatfishCharacter {
       side: THREE.DoubleSide,
     });
 
+    // Real redtails have dark grey side fins; only the tail is bright red-orange.
+    this.darkFinMaterial = new THREE.MeshPhysicalMaterial({
+      map: finTex,
+      bumpMap: finBump,
+      bumpScale: 0.02,
+      color: new THREE.Color('#4a535c'),
+      roughness: 0.3,
+      metalness: 0.08,
+      clearcoat: 0.6,
+      side: THREE.DoubleSide,
+    });
+
     this.dorsalFinMaterial = new THREE.MeshPhysicalMaterial({
       map: finTex,
       bumpMap: finBump,
       bumpScale: 0.02,
-      color: new THREE.Color('#d94322'),
+      color: new THREE.Color('#8a3a2a'),
       roughness: 0.28,
       metalness: 0.08,
       clearcoat: 0.7,
@@ -459,7 +474,7 @@ export class CatfishCharacter {
       bevelSize: 0.018,
       bevelThickness: 0.018,
     });
-    this.adiposeFin = new THREE.Mesh(adiposeGeo, this.redFinMaterial);
+    this.adiposeFin = new THREE.Mesh(adiposeGeo, this.darkFinMaterial);
     this.adiposeFin.position.set(-0.021, 0.24, -0.55);
     this.adiposeFin.rotation.y = Math.PI / 2;
     this.group.add(this.adiposeFin);
@@ -468,13 +483,14 @@ export class CatfishCharacter {
     this.tailFin = new THREE.Group();
     this.tailFin.position.set(0, 0.02, -1.16);
 
+    // One wide, forked fan joined to the body (it used to look like two separate paddles).
     const tailShape = new THREE.Shape();
-    tailShape.moveTo(0, 0.08);
-    tailShape.bezierCurveTo(0.24, 0.48, 0.56, 0.7, 0.82, 0.66);
-    tailShape.bezierCurveTo(1.02, 0.54, 0.98, 0.24, 0.84, 0.1);
-    tailShape.quadraticCurveTo(0.72, 0.0, 0.84, -0.1);
-    tailShape.bezierCurveTo(0.98, -0.24, 1.02, -0.54, 0.82, -0.66);
-    tailShape.bezierCurveTo(0.56, -0.7, 0.24, -0.48, 0, -0.08);
+    tailShape.moveTo(0, 0.17);
+    tailShape.bezierCurveTo(0.2, 0.42, 0.5, 0.64, 0.8, 0.62);
+    tailShape.bezierCurveTo(0.95, 0.52, 0.92, 0.27, 0.76, 0.13);
+    tailShape.quadraticCurveTo(0.63, 0.0, 0.76, -0.13);
+    tailShape.bezierCurveTo(0.92, -0.27, 0.95, -0.52, 0.8, -0.62);
+    tailShape.bezierCurveTo(0.5, -0.64, 0.2, -0.42, 0, -0.17);
     tailShape.closePath();
 
     const tailGeo = new THREE.ExtrudeGeometry(tailShape, {
@@ -507,7 +523,7 @@ export class CatfishCharacter {
       bevelSize: 0.012,
       bevelThickness: 0.012,
     });
-    this.analFin = new THREE.Mesh(analGeo, this.redFinMaterial);
+    this.analFin = new THREE.Mesh(analGeo, this.darkFinMaterial);
     this.analFin.rotation.y = Math.PI / 2;
     this.analFin.position.set(-0.013, -0.2, -0.52);
     this.group.add(this.analFin);
@@ -527,25 +543,26 @@ export class CatfishCharacter {
       bevelThickness: 0.014,
     });
 
-    this.leftPecFin = new THREE.Mesh(pecGeo, this.redFinMaterial);
-    this.leftPecFin.position.set(0.49, -0.14, 0.32);
-    this.leftPecFin.rotation.set(0.28, -0.45, -0.35);
+    this.leftPecFin = new THREE.Mesh(pecGeo, this.darkFinMaterial);
+    this.leftPecFin.position.set(0.46, -0.15, 0.3);
+    this.leftPecFin.rotation.set(0.28, -0.85, -0.35);
+    this.leftPecFin.scale.set(0.78, 0.78, 0.78);
     this.leftPecFin.castShadow = true;
     this.group.add(this.leftPecFin);
 
-    this.rightPecFin = new THREE.Mesh(pecGeo, this.redFinMaterial);
-    this.rightPecFin.position.set(-0.49, -0.14, 0.32);
-    this.rightPecFin.rotation.set(0.28, 0.45, 0.35);
-    this.rightPecFin.scale.set(-1, 1, 1);
+    this.rightPecFin = new THREE.Mesh(pecGeo, this.darkFinMaterial);
+    this.rightPecFin.position.set(-0.46, -0.15, 0.3);
+    this.rightPecFin.rotation.set(0.28, 0.85, 0.35);
+    this.rightPecFin.scale.set(-0.78, 0.78, 0.78);
     this.rightPecFin.castShadow = true;
     this.group.add(this.rightPecFin);
 
     const pelvGeo = pecGeo.clone();
     pelvGeo.scale(0.55, 0.55, 0.55);
-    this.leftPelvicFin = new THREE.Mesh(pelvGeo, this.redFinMaterial);
+    this.leftPelvicFin = new THREE.Mesh(pelvGeo, this.darkFinMaterial);
     this.leftPelvicFin.position.set(0.24, -0.24, -0.18);
     this.leftPelvicFin.rotation.set(0.2, -0.4, -0.45);
-    this.rightPelvicFin = new THREE.Mesh(pelvGeo, this.redFinMaterial);
+    this.rightPelvicFin = new THREE.Mesh(pelvGeo, this.darkFinMaterial);
     this.rightPelvicFin.position.set(-0.24, -0.24, -0.18);
     this.rightPelvicFin.rotation.set(0.2, 0.4, 0.45);
     this.rightPelvicFin.scale.set(-1, 1, 1);
@@ -558,7 +575,7 @@ export class CatfishCharacter {
       const t1 = (i + 1) / segCount;
       const r0 = THREE.MathUtils.lerp(0.029, 0.005, t0);
       const r1 = THREE.MathUtils.lerp(0.029, 0.005, t1);
-      const segGeo = new THREE.CylinderGeometry(r1, r0, 0.22, 14, 1, false);
+      const segGeo = new THREE.CylinderGeometry(r1, r0, 0.15, 8, 1, false);
       segGeo.rotateX(Math.PI / 2);
 
       const segL = new THREE.Mesh(segGeo, this.barbelMaterial);
@@ -658,9 +675,9 @@ export class CatfishCharacter {
     for (let i = 0; i < segCount; i++) {
       const t = (i + 1) / segCount;
       const nextLX =
-        0.44 + Math.sin(t * 1.4) * 0.56 + Math.sin(this.tailSwimPhase + t * 2.5) * 0.09;
-      const nextLY = -0.06 - t * 0.24 + diving * t * 0.2;
-      const nextLZ = 0.96 - t * (1.65 + dragZ);
+        0.44 + Math.sin(t * 1.4) * 0.36 + Math.sin(this.tailSwimPhase + t * 2.5) * 0.07;
+      const nextLY = -0.06 - t * 0.2 + diving * t * 0.2;
+      const nextLZ = 0.96 - t * (1.05 + dragZ * 0.6);
 
       const segL = this.leftBarbelSegments[i];
       segL.position.set(
@@ -668,16 +685,16 @@ export class CatfishCharacter {
         (prevLY + nextLY) * 0.5,
         (prevLZ + nextLZ) * 0.5
       );
-      segL.lookAt(this.group.localToWorld(new THREE.Vector3(nextLX, nextLY, nextLZ)));
+      segL.lookAt(this.group.localToWorld(_barbelTarget.set(nextLX, nextLY, nextLZ)));
 
       prevLX = nextLX;
       prevLY = nextLY;
       prevLZ = nextLZ;
 
       const nextRX =
-        -0.44 - Math.sin(t * 1.4) * 0.56 - Math.sin(this.tailSwimPhase + t * 2.5) * 0.09;
-      const nextRY = -0.06 - t * 0.24 + diving * t * 0.2;
-      const nextRZ = 0.96 - t * (1.65 + dragZ);
+        -0.44 - Math.sin(t * 1.4) * 0.36 - Math.sin(this.tailSwimPhase + t * 2.5) * 0.07;
+      const nextRY = -0.06 - t * 0.2 + diving * t * 0.2;
+      const nextRZ = 0.96 - t * (1.05 + dragZ * 0.6);
 
       const segR = this.rightBarbelSegments[i];
       segR.position.set(
@@ -685,7 +702,7 @@ export class CatfishCharacter {
         (prevRY + nextRY) * 0.5,
         (prevRZ + nextRZ) * 0.5
       );
-      segR.lookAt(this.group.localToWorld(new THREE.Vector3(nextRX, nextRY, nextRZ)));
+      segR.lookAt(this.group.localToWorld(_barbelTarget.set(nextRX, nextRY, nextRZ)));
 
       prevRX = nextRX;
       prevRY = nextRY;

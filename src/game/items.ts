@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeStaticMeshes } from './perf';
 import {
   getRiverPath,
   getRiverBedElevationAt,
@@ -34,6 +35,8 @@ export interface RiverItem {
   pointsValue: number;
   isTreasure: boolean;
   phase: number;
+  /** Minnow tail fin, animated separately. */
+  tail?: THREE.Object3D;
 }
 
 function createStarGeometry(): THREE.BufferGeometry {
@@ -90,6 +93,7 @@ export class ItemManager {
   public scene: THREE.Scene;
   public items: RiverItem[] = [];
   public itemGroup: THREE.Group;
+  private templates = new Map<ItemType, THREE.Group>();
 
   private starGeo: THREE.BufferGeometry;
   private scaleGeo: THREE.BufferGeometry;
@@ -314,7 +318,11 @@ export class ItemManager {
     riverPos: THREE.Vector3,
     riverNormal: THREE.Vector3
   ) {
-    const group = new THREE.Group();
+    // Every item of a type looks the same, so build it once, merge its pieces into a few
+    // meshes, and share that template's geometry and materials across all copies.
+    const template = this.templates.get(type);
+    const build = !template;
+    const group = template ? template.clone() : new THREE.Group();
     let label = 'Item';
     let hungerRestore = 0;
     let pointsValue = 5;
@@ -325,181 +333,204 @@ export class ItemManager {
       pointsValue = 10;
       isTreasure = false;
 
-      const starMesh = new THREE.Mesh(this.starGeo, this.starMat);
-      starMesh.scale.set(0.9, 0.9, 0.9);
-      group.add(starMesh);
+      if (build) {
+        const starMesh = new THREE.Mesh(this.starGeo, this.starMat);
+        starMesh.scale.set(0.9, 0.9, 0.9);
+        group.add(starMesh);
 
-      const haloGeo = new THREE.RingGeometry(0.5, 0.75, 32);
-      const haloMat = new THREE.MeshBasicMaterial({
-        color: 0xffea00,
-        transparent: true,
-        opacity: 0.35,
-        side: THREE.DoubleSide,
-      });
-      group.add(new THREE.Mesh(haloGeo, haloMat));
+        const haloGeo = new THREE.RingGeometry(0.5, 0.75, 32);
+        const haloMat = new THREE.MeshBasicMaterial({
+          color: 0xffea00,
+          transparent: true,
+          opacity: 0.35,
+          side: THREE.DoubleSide,
+        });
+        group.add(new THREE.Mesh(haloGeo, haloMat));
+      }
     } else if (type === 'larva') {
       label = 'Juicy River Larva';
       hungerRestore = 20;
       pointsValue = 5;
 
-      // High-poly 6 Articulated Chitinous Larva Segments + Smooth Head Capsule + Curved Prolegs & Antennae
-      const headGeo = new THREE.SphereGeometry(0.145, 20, 18);
-      headGeo.scale(1.0, 0.9, 1.05);
-      const headMesh = new THREE.Mesh(headGeo, this.larvaHeadMat);
-      headMesh.position.set(0, 0.32, 0.09);
-      group.add(headMesh);
+      if (build) {
+        // High-poly 6 Articulated Chitinous Larva Segments + Smooth Head Capsule + Curved Prolegs & Antennae
+        const headGeo = new THREE.SphereGeometry(0.145, 10, 8);
+        headGeo.scale(1.0, 0.9, 1.05);
+        const headMesh = new THREE.Mesh(headGeo, this.larvaHeadMat);
+        headMesh.position.set(0, 0.32, 0.09);
+        group.add(headMesh);
 
-      // Curved delicate antennae
-      const antGeo = new THREE.CapsuleGeometry(0.01, 0.08, 6, 8);
-      const antL = new THREE.Mesh(antGeo, this.larvaHeadMat);
-      antL.position.set(0.06, 0.43, 0.14);
-      antL.rotation.set(0.4, 0, -0.45);
-      const antR = new THREE.Mesh(antGeo, this.larvaHeadMat);
-      antR.position.set(-0.06, 0.43, 0.14);
-      antR.rotation.set(0.4, 0, 0.45);
-      group.add(antL, antR);
+        // Curved delicate antennae
+        const antGeo = new THREE.CapsuleGeometry(0.01, 0.08, 2, 4);
+        const antL = new THREE.Mesh(antGeo, this.larvaHeadMat);
+        antL.position.set(0.06, 0.43, 0.14);
+        antL.rotation.set(0.4, 0, -0.45);
+        const antR = new THREE.Mesh(antGeo, this.larvaHeadMat);
+        antR.position.set(-0.06, 0.43, 0.14);
+        antR.rotation.set(0.4, 0, 0.45);
+        group.add(antL, antR);
 
-      const segGeo = new THREE.SphereGeometry(0.165, 20, 18);
-      const legGeo = new THREE.CapsuleGeometry(0.012, 0.14, 6, 10);
-      for (let s = 0; s < 6; s++) {
-        const t = s / 5;
-        const archZ = Math.sin(t * Math.PI) * 0.11;
-        const seg = new THREE.Mesh(segGeo, this.larvaMat);
-        seg.position.set(0, 0.17 - s * 0.115, archZ);
-        const radScale = 1.0 - s * 0.1;
-        seg.scale.set(radScale, 0.82, radScale * 1.12);
-        group.add(seg);
+        const segGeo = new THREE.SphereGeometry(0.165, 10, 8);
+        const legGeo = new THREE.CapsuleGeometry(0.012, 0.14, 2, 4);
+        for (let s = 0; s < 6; s++) {
+          const t = s / 5;
+          const archZ = Math.sin(t * Math.PI) * 0.11;
+          const seg = new THREE.Mesh(segGeo, this.larvaMat);
+          seg.position.set(0, 0.17 - s * 0.115, archZ);
+          const radScale = 1.0 - s * 0.1;
+          seg.scale.set(radScale, 0.82, radScale * 1.12);
+          group.add(seg);
 
-        // Smooth curved thoracic prolegs on first 3 segments
-        if (s < 3) {
-          const legL = new THREE.Mesh(legGeo, this.larvaHeadMat);
-          legL.position.set(0.12, 0.17 - s * 0.115, archZ + 0.06);
-          legL.rotation.set(0.3, 0, 0.65);
-          const legR = new THREE.Mesh(legGeo, this.larvaHeadMat);
-          legR.position.set(-0.12, 0.17 - s * 0.115, archZ + 0.06);
-          legR.rotation.set(0.3, 0, -0.65);
-          group.add(legL, legR);
+          // Smooth curved thoracic prolegs on first 3 segments
+          if (s < 3) {
+            const legL = new THREE.Mesh(legGeo, this.larvaHeadMat);
+            legL.position.set(0.12, 0.17 - s * 0.115, archZ + 0.06);
+            legL.rotation.set(0.3, 0, 0.65);
+            const legR = new THREE.Mesh(legGeo, this.larvaHeadMat);
+            legR.position.set(-0.12, 0.17 - s * 0.115, archZ + 0.06);
+            legR.rotation.set(0.3, 0, -0.65);
+            group.add(legL, legR);
+          }
         }
+        group.rotation.z = Math.PI / 3;
       }
-      group.rotation.z = Math.PI / 3;
     } else if (type === 'tiny_fish') {
       label = 'Silver Feeder Minnow';
       hungerRestore = 28;
       pointsValue = 8;
 
-      // High-poly Fusiform Minnow with Iridescent Scales, 3D Eyes, Curved Dorsal/Pectoral Fins & Rounded Forked Tail
-      const bodyMesh = new THREE.Mesh(this.minnowBodyGeo, this.tinyFishMat);
-      const tailMesh = new THREE.Mesh(this.minnowTailGeo, this.tinyFishFinMat);
-      tailMesh.position.z = -0.25;
-      tailMesh.name = 'minnowTail';
+      if (build) {
+        // High-poly Fusiform Minnow with Iridescent Scales, 3D Eyes, Curved Dorsal/Pectoral Fins & Rounded Forked Tail
+        const bodyMesh = new THREE.Mesh(this.minnowBodyGeo, this.tinyFishMat);
+        const tailMesh = new THREE.Mesh(this.minnowTailGeo, this.tinyFishFinMat);
+        tailMesh.position.z = -0.25;
+        tailMesh.name = 'minnowTail';
 
-      const dorsalMesh = new THREE.Mesh(this.minnowDorsalGeo, this.tinyFishFinMat);
-      dorsalMesh.position.set(0, 0.11, 0.04);
+        const dorsalMesh = new THREE.Mesh(this.minnowDorsalGeo, this.tinyFishFinMat);
+        dorsalMesh.position.set(0, 0.11, 0.04);
 
-      const pecL = new THREE.Mesh(this.minnowPecGeo, this.tinyFishFinMat);
-      pecL.position.set(0.065, -0.035, 0.09);
-      pecL.rotation.set(0.28, -0.45, -0.35);
-      const pecR = new THREE.Mesh(this.minnowPecGeo, this.tinyFishFinMat);
-      pecR.position.set(-0.065, -0.035, 0.09);
-      pecR.rotation.set(0.28, 0.45, 0.35);
-      pecR.scale.set(-1, 1, 1);
+        const pecL = new THREE.Mesh(this.minnowPecGeo, this.tinyFishFinMat);
+        pecL.position.set(0.065, -0.035, 0.09);
+        pecL.rotation.set(0.28, -0.45, -0.35);
+        const pecR = new THREE.Mesh(this.minnowPecGeo, this.tinyFishFinMat);
+        pecR.position.set(-0.065, -0.035, 0.09);
+        pecR.rotation.set(0.28, 0.45, 0.35);
+        pecR.scale.set(-1, 1, 1);
 
-      const eyeGeo = new THREE.SphereGeometry(0.028, 14, 14);
-      const eyeL = new THREE.Mesh(eyeGeo, this.eyeMat);
-      eyeL.position.set(0.058, 0.025, 0.18);
-      const eyeR = new THREE.Mesh(eyeGeo, this.eyeMat);
-      eyeR.position.set(-0.058, 0.025, 0.18);
+        const eyeGeo = new THREE.SphereGeometry(0.028, 6, 6);
+        const eyeL = new THREE.Mesh(eyeGeo, this.eyeMat);
+        eyeL.position.set(0.058, 0.025, 0.18);
+        const eyeR = new THREE.Mesh(eyeGeo, this.eyeMat);
+        eyeR.position.set(-0.058, 0.025, 0.18);
 
-      group.add(bodyMesh, tailMesh, dorsalMesh, pecL, pecR, eyeL, eyeR);
+        group.add(bodyMesh, tailMesh, dorsalMesh, pecL, pecR, eyeL, eyeR);
+      }
     } else if (type === 'berry') {
       label = 'Camu-Camu River Berry';
       hungerRestore = 35;
       pointsValue = 10;
 
-      const berryGeo = new THREE.SphereGeometry(0.28, 22, 22);
-      const berryMesh = new THREE.Mesh(berryGeo, this.berryMat);
-      const leafGeo = new THREE.SphereGeometry(0.11, 12, 10);
-      leafGeo.scale(1.4, 0.35, 0.8);
-      const leafMat = new THREE.MeshStandardMaterial({ color: 0x4caf50, roughness: 0.4 });
-      const leaf = new THREE.Mesh(leafGeo, leafMat);
-      leaf.position.set(0.04, 0.28, 0);
-      leaf.rotation.z = -0.3;
-      group.add(berryMesh, leaf);
+      if (build) {
+        const berryGeo = new THREE.SphereGeometry(0.28, 12, 10);
+        const berryMesh = new THREE.Mesh(berryGeo, this.berryMat);
+        const leafGeo = new THREE.SphereGeometry(0.11, 6, 5);
+        leafGeo.scale(1.4, 0.35, 0.8);
+        const leafMat = new THREE.MeshStandardMaterial({ color: 0x4caf50, roughness: 0.4 });
+        const leaf = new THREE.Mesh(leafGeo, leafMat);
+        leaf.position.set(0.04, 0.28, 0);
+        leaf.rotation.z = -0.3;
+        group.add(berryMesh, leaf);
+      }
     } else if (type === 'smooth_stone') {
       label = 'Smooth Jade River Stone';
       pointsValue = 15;
       isTreasure = true;
 
-      const stoneGeo = new THREE.SphereGeometry(0.38, 28, 22);
-      stoneGeo.scale(1.32, 0.62, 1.05);
-      const stoneMesh = new THREE.Mesh(stoneGeo, this.smoothStoneMat);
+      if (build) {
+        const stoneGeo = new THREE.SphereGeometry(0.38, 14, 10);
+        stoneGeo.scale(1.32, 0.62, 1.05);
+        const stoneMesh = new THREE.Mesh(stoneGeo, this.smoothStoneMat);
 
-      const bandGeo = new THREE.TorusGeometry(0.37, 0.045, 14, 36);
-      bandGeo.rotateX(Math.PI / 2);
-      bandGeo.scale(1.32, 1.05, 1.0);
-      const bandMesh = new THREE.Mesh(bandGeo, this.trinketGoldMat);
+        const bandGeo = new THREE.TorusGeometry(0.37, 0.045, 6, 20);
+        bandGeo.rotateX(Math.PI / 2);
+        bandGeo.scale(1.32, 1.05, 1.0);
+        const bandMesh = new THREE.Mesh(bandGeo, this.trinketGoldMat);
 
-      group.add(stoneMesh, bandMesh);
+        group.add(stoneMesh, bandMesh);
+      }
     } else if (type === 'shimmering_scale') {
       label = 'Shimmering Arapaima Scale';
       pointsValue = 25;
       isTreasure = true;
 
-      const scaleMesh = new THREE.Mesh(this.scaleGeo, this.shimmeringScaleMat);
-      const auraGeo = new THREE.RingGeometry(0.45, 0.62, 32);
-      const auraMat = new THREE.MeshBasicMaterial({
-        color: 0x38bdf8,
-        transparent: true,
-        opacity: 0.4,
-        side: THREE.DoubleSide,
-      });
-      group.add(scaleMesh, new THREE.Mesh(auraGeo, auraMat));
+      if (build) {
+        const scaleMesh = new THREE.Mesh(this.scaleGeo, this.shimmeringScaleMat);
+        const auraGeo = new THREE.RingGeometry(0.45, 0.62, 32);
+        const auraMat = new THREE.MeshBasicMaterial({
+          color: 0x38bdf8,
+          transparent: true,
+          opacity: 0.4,
+          side: THREE.DoubleSide,
+        });
+        group.add(scaleMesh, new THREE.Mesh(auraGeo, auraMat));
+      }
     } else if (type === 'lost_trinket') {
       label = 'Sunken Golden Compass Trinket';
       pointsValue = 40;
       isTreasure = true;
 
-      const ringGeo = new THREE.TorusGeometry(0.36, 0.09, 18, 36);
-      const ringMesh = new THREE.Mesh(ringGeo, this.trinketGoldMat);
-      const crownGeo = new THREE.CylinderGeometry(0.12, 0.12, 0.16, 18);
-      const crownMesh = new THREE.Mesh(crownGeo, this.trinketGoldMat);
-      crownMesh.position.y = 0.44;
-      const gemGeo = new THREE.IcosahedronGeometry(0.24, 1);
-      const gemMesh = new THREE.Mesh(gemGeo, this.trinketGemMat);
-      group.add(ringMesh, crownMesh, gemMesh);
+      if (build) {
+        const ringGeo = new THREE.TorusGeometry(0.36, 0.09, 8, 20);
+        const ringMesh = new THREE.Mesh(ringGeo, this.trinketGoldMat);
+        const crownGeo = new THREE.CylinderGeometry(0.12, 0.12, 0.16, 10);
+        const crownMesh = new THREE.Mesh(crownGeo, this.trinketGoldMat);
+        crownMesh.position.y = 0.44;
+        const gemGeo = new THREE.IcosahedronGeometry(0.24, 1);
+        const gemMesh = new THREE.Mesh(gemGeo, this.trinketGemMat);
+        group.add(ringMesh, crownMesh, gemMesh);
+      }
     } else if (type === 'pearl') {
       label = 'Glowing River Pearl';
       pointsValue = 30;
       isTreasure = true;
 
-      const shellMat = new THREE.MeshPhysicalMaterial({
-        color: 0x6d4c41,
-        roughness: 0.45,
-        clearcoat: 0.7,
-        side: THREE.DoubleSide,
-      });
-      const bottomShellGeo = new THREE.SphereGeometry(
-        0.44,
-        24,
-        18,
-        0,
-        Math.PI * 2,
-        0,
-        Math.PI * 0.5
-      );
-      bottomShellGeo.scale(1.18, 0.45, 1.02);
-      const bottomShell = new THREE.Mesh(bottomShellGeo, shellMat);
-      bottomShell.rotation.x = Math.PI;
-      bottomShell.position.y = -0.1;
+      if (build) {
+        const shellMat = new THREE.MeshPhysicalMaterial({
+          color: 0x6d4c41,
+          roughness: 0.45,
+          clearcoat: 0.7,
+          side: THREE.DoubleSide,
+        });
+        const bottomShellGeo = new THREE.SphereGeometry(
+          0.44,
+          14,
+          8,
+          0,
+          Math.PI * 2,
+          0,
+          Math.PI * 0.5
+        );
+        bottomShellGeo.scale(1.18, 0.45, 1.02);
+        const bottomShell = new THREE.Mesh(bottomShellGeo, shellMat);
+        bottomShell.rotation.x = Math.PI;
+        bottomShell.position.y = -0.1;
 
-      const topShell = new THREE.Mesh(bottomShellGeo, shellMat);
-      topShell.position.set(0, 0.12, -0.25);
-      topShell.rotation.x = -0.65;
+        const topShell = new THREE.Mesh(bottomShellGeo, shellMat);
+        topShell.position.set(0, 0.12, -0.25);
+        topShell.rotation.x = -0.65;
 
-      const pearlGeo = new THREE.SphereGeometry(0.26, 26, 26);
-      const pearlMesh = new THREE.Mesh(pearlGeo, this.pearlMat);
-      pearlMesh.position.y = 0.06;
-      group.add(bottomShell, topShell, pearlMesh);
+        const pearlGeo = new THREE.SphereGeometry(0.26, 12, 10);
+        const pearlMesh = new THREE.Mesh(pearlGeo, this.pearlMat);
+        pearlMesh.position.y = 0.06;
+        group.add(bottomShell, topShell, pearlMesh);
+      }
+    }
+
+    if (build) {
+      if (type === 'tiny_fish' && group.children[1]) group.children[1].name = 'tail';
+      const tailPart = group.getObjectByName('tail');
+      mergeStaticMeshes(group, tailPart ? [tailPart] : []);
+      this.templates.set(type, group.clone());
     }
 
     const worldX = riverPos.x + riverNormal.x * lateral;
@@ -523,6 +554,7 @@ export class ItemManager {
       pointsValue,
       isTreasure,
       phase: Math.random() * Math.PI * 2,
+      tail: group.getObjectByName('tail') ?? undefined,
     });
   }
 
@@ -556,9 +588,8 @@ export class ItemManager {
         item.group.position.x = item.position.x + Math.sin(item.phase * 1.4) * 0.65;
         item.group.position.y = item.baseY + Math.cos(item.phase) * 0.14;
         item.group.rotation.y = Math.cos(item.phase * 1.4) * 0.65;
-        const tail = item.group.children[1];
-        if (tail) {
-          tail.rotation.y = Math.sin(item.phase * 7.0) * 0.42;
+        if (item.tail) {
+          item.tail.rotation.y = Math.sin(item.phase * 7.0) * 0.42;
         }
       } else {
         item.group.rotation.y += dt * 1.5;
