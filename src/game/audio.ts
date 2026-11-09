@@ -420,6 +420,84 @@ class SoundManager {
     lfo.stop(now + 0.52);
   }
 
+  private noiseBuffer: AudioBuffer | null = null;
+  private getNoise(ctx: AudioContext) {
+    if (!this.noiseBuffer) {
+      const len = Math.floor(ctx.sampleRate * 0.8);
+      this.noiseBuffer = ctx.createBuffer(1, len, ctx.sampleRate);
+      const data = this.noiseBuffer.getChannelData(0);
+      for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+    }
+    return this.noiseBuffer;
+  }
+
+  /** A cartoon cat "Mrrow!" (surprised), or a sad little "mew" when it's soggy. */
+  public playMeow(sad = false) {
+    this.initCtx();
+    if (!this.ctx || !this.masterGain || this.isMuted) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const formant = this.ctx.createBiquadFilter();
+    const gain = this.ctx.createGain();
+    osc.type = 'sawtooth';
+    const dur = sad ? 0.55 : 0.5;
+    if (sad) {
+      osc.frequency.setValueAtTime(820, now);
+      osc.frequency.exponentialRampToValueAtTime(560, now + dur);
+    } else {
+      osc.frequency.setValueAtTime(480, now);
+      osc.frequency.exponentialRampToValueAtTime(900, now + 0.14);
+      osc.frequency.exponentialRampToValueAtTime(560, now + dur);
+    }
+    formant.type = 'bandpass';
+    formant.Q.value = 3;
+    formant.frequency.setValueAtTime(900, now);
+    formant.frequency.linearRampToValueAtTime(1700, now + 0.15);
+    formant.frequency.linearRampToValueAtTime(1000, now + dur);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(sad ? 0.22 : 0.3, now + 0.04);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+    osc.connect(formant);
+    formant.connect(gain);
+    gain.connect(this.masterGain);
+    osc.start(now);
+    osc.stop(now + dur + 0.02);
+  }
+
+  /** A big cartoon SPLASH. */
+  public playSplash() {
+    this.initCtx();
+    if (!this.ctx || !this.masterGain || this.isMuted) return;
+    const now = this.ctx.currentTime;
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = this.getNoise(this.ctx);
+    const lp = this.ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(2600, now);
+    lp.frequency.exponentialRampToValueAtTime(260, now + 0.6);
+    const ng = this.ctx.createGain();
+    ng.gain.setValueAtTime(0.0001, now);
+    ng.gain.exponentialRampToValueAtTime(0.5, now + 0.02);
+    ng.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
+    noise.connect(lp);
+    lp.connect(ng);
+    ng.connect(this.masterGain);
+    noise.start(now);
+    noise.stop(now + 0.75);
+    // Low "bloop" underneath.
+    const osc = this.ctx.createOscillator();
+    const og = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(320, now);
+    osc.frequency.exponentialRampToValueAtTime(70, now + 0.3);
+    og.gain.setValueAtTime(0.35, now);
+    og.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+    osc.connect(og);
+    og.connect(this.masterGain);
+    osc.start(now);
+    osc.stop(now + 0.36);
+  }
+
   /** A cartoon "chomp" when a bad guy grabs a snack. */
   public playChomp() {
     this.initCtx();

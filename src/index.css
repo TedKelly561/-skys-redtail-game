@@ -19,3 +19,7 @@
 @media (prefers-reduced-motion: reduce) {
   .animate-pop, .animate-wiggle { animation: none; }
 }
+
+/* Fill the visible screen. On phones, 100dvh leaves room for Safari's toolbar so the bottom
+   buttons are never hidden; older browsers use 100vh. */
+.app-root { height: 100vh; height: 100dvh; }

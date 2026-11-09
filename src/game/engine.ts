@@ -18,6 +18,7 @@ import { Sky } from './sky';
 import { Sparkles } from './sparkles';
 import { RainbowGoal } from './rainbow';
 import { BadGuys } from './badGuys';
+import { BushCats, CatTuning } from './cats';
 import { Fireflies } from './fireflies';
 import { music } from './music';
 import { DolphinRace, HideAndSeek, RaceProgress } from './minigames';
@@ -106,11 +107,11 @@ export type Difficulty = 'gentle' | 'normal' | 'tricky';
  */
 const DIFFICULTY: Record<
   Difficulty,
-  { wake: number; zoomWake: number; notice: number; chaseTime: number; chase: 'slow' | number; snack: number }
+  { wake: number; zoomWake: number; notice: number; chaseTime: number; chase: 'slow' | number; snack: number; cat: CatTuning }
 > = {
-  gentle: { wake: 2.0, zoomWake: 2.6, notice: 10, chaseTime: 2, chase: 'slow', snack: 0 },
-  normal: { wake: 2.6, zoomWake: 4.2, notice: 14, chaseTime: 3.5, chase: 0.8, snack: 15 },
-  tricky: { wake: 3.2, zoomWake: 5.5, notice: 18, chaseTime: 5, chase: 0.9, snack: 20 },
+  gentle: { wake: 2.0, zoomWake: 2.6, notice: 10, chaseTime: 2, chase: 'slow', snack: 0, cat: { trigger: 4.5, crouch: 0.9, lead: 0.15 } },
+  normal: { wake: 2.6, zoomWake: 4.2, notice: 14, chaseTime: 3.5, chase: 0.8, snack: 15, cat: { trigger: 5.5, crouch: 0.6, lead: 0.5 } },
+  tricky: { wake: 3.2, zoomWake: 5.5, notice: 18, chaseTime: 5, chase: 0.9, snack: 20, cat: { trigger: 6.5, crouch: 0.45, lead: 0.8 } },
 };
 
 export interface MiniGameInfo {
@@ -144,6 +145,7 @@ export class GameEngine {
   private sparkles: Sparkles;
   private rainbow: RainbowGoal;
   private badGuys: BadGuys;
+  private cats: BushCats;
   private lastBadGuyTip: number = -999;
   /** Dress-up shop is open: the title camera moves in close on Whiskers. */
   public showcase: boolean = false;
@@ -316,6 +318,7 @@ export class GameEngine {
     this.sparkles = new Sparkles(this.scene);
     this.rainbow = new RainbowGoal(this.scene);
     this.badGuys = new BadGuys(this.scene);
+    this.cats = new BushCats(this.scene);
     this.fireflies = new Fireflies(this.scene);
     this.race = new DolphinRace(this.scene, this.riverWorld.dolphins[0]);
     try {
@@ -351,6 +354,7 @@ export class GameEngine {
     this.streamer.addChildrenOf(this.chestManager.group, 170);
     this.streamer.addChildrenOf(this.badGuys.caimanGroup, 140);
     this.streamer.addChildrenOf(this.badGuys.piranhaGroup, 140);
+    this.streamer.addChildrenOf(this.cats.group, 140);
     this.streamer.addChildrenOf(this.race.group, 170);
     this.applyOutfit(loadCloset().outfit);
     this.applyChapterLook(CHAPTERS[0], 0);
@@ -510,6 +514,7 @@ export class GameEngine {
     this.difficulty = level;
     const t = DIFFICULTY[level];
     this.badGuys.tuning = { wake: t.wake, zoomWake: t.zoomWake, notice: t.notice, chaseTime: t.chaseTime };
+    this.cats.tuning = t.cat;
     try {
       localStorage.setItem('whiskers_difficulty', level);
     } catch {
@@ -563,6 +568,7 @@ export class GameEngine {
     this.player.setRainbow(false);
     this.rainbow.reset();
     this.badGuys.reset();
+    this.cats.reset();
     this.race.reset();
     this.hideSeek.stop(this.riverWorld);
     this.hideSeekInviteTimer = 0;
@@ -1333,14 +1339,47 @@ export class GameEngine {
         this.sparkles.burst(this.player.group.position, ['#ffffff', '#bff6ff'], 12, 2);
       }
     }
+
+    for (const ev of this.cats.update(dt, this.player.group.position)) {
+      if (ev.type === 'warn') {
+        if (this.elapsedSeconds - this.lastBadGuyTip > 12) {
+          this.lastBadGuyTip = this.elapsedSeconds;
+          this.callbacks.onTipMessage('Rustle rustle... something is hiding in the bushes!');
+        }
+      } else if (ev.type === 'pounce') {
+        sound.playMeow();
+        this.lastBadGuyTip = this.elapsedSeconds;
+        this.callbacks.onTipMessage('A cat! Swim away from the bank!');
+        narrator.say('A cat! Swim away!', true);
+      } else if (ev.type === 'caught') {
+        this.bumpCooldown = 0;
+        this.bump(ev.at);
+        this.loseSnack('cat');
+      } else if (ev.type === 'splash') {
+        sound.playSplash();
+        window.setTimeout(() => sound.playMeow(true), 450);
+        this.sparkles.burst(ev.at, ['#ffffff', '#bff6ff', '#7fd8ff'], 26, 4.5, 2.2);
+        this.lastBadGuyTip = this.elapsedSeconds;
+        this.callbacks.onTreasurePopup('SPLASH! The cat fell in!', 0, '💦');
+        narrator.say(`${cheer('You got away')} The cat fell in the water!`, true);
+      } else {
+        this.sparkles.burst(ev.at, ['#bff6ff', '#7fd8ff', '#ffffff'], 18, 2.5, 1.2);
+      }
+    }
   }
 
-  private loseSnack(by: 'caiman' | 'piranhas') {
+  private loseSnack(by: 'caiman' | 'piranhas' | 'cat') {
     this.lastBadGuyTip = this.elapsedSeconds;
     const loss = DIFFICULTY[this.difficulty].snack;
     if (loss === 0) {
       // Gentle: just a bump and a friendly reminder.
-      this.callbacks.onTipMessage(by === 'caiman' ? 'Boing! Swim around the caiman!' : 'Boing! Zoom away from the piranhas!');
+      this.callbacks.onTipMessage(
+        by === 'caiman'
+          ? 'Boing! Swim around the caiman!'
+          : by === 'cat'
+            ? 'Boing! Stay away from the bushes!'
+            : 'Boing! Zoom away from the piranhas!'
+      );
       return;
     }
     this.tummy = Math.max(0, this.tummy - loss);
@@ -1349,6 +1388,9 @@ export class GameEngine {
     if (by === 'caiman') {
       this.callbacks.onTreasurePopup('Snap! It took a snack!', 0, '🐊');
       narrator.say('Oh no! The caiman took a snack!', true);
+    } else if (by === 'cat') {
+      this.callbacks.onTreasurePopup('Swipe! The cat took a snack!', 0, '🐈‍⬛');
+      narrator.say('Oh no! The cat took a snack!', true);
     } else {
       this.callbacks.onTreasurePopup('Nibble! They took a snack!', 0, '🐟');
       narrator.say('Oh no! The piranhas took a snack!', true);
@@ -1561,6 +1603,7 @@ export class GameEngine {
     this.sparkles.dispose();
     this.rainbow.dispose();
     this.badGuys.dispose();
+    this.cats.dispose();
     this.fireflies.dispose();
     this.race.dispose();
     this.sky.dispose();
