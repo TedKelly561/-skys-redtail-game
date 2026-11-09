@@ -19,6 +19,8 @@ import { Sparkles } from './sparkles';
 import { RainbowGoal } from './rainbow';
 import { BadGuys } from './badGuys';
 import { BushCats, CatTuning } from './cats';
+import { FishHouse, HouseView } from './house';
+import { BubbleGeysers, Otter, TreasureDive, WaterfallSlide, dailyAllowance } from './lakeFun';
 import { Fireflies } from './fireflies';
 import { music } from './music';
 import { DolphinRace, HideAndSeek, RaceProgress } from './minigames';
@@ -60,6 +62,7 @@ const SPARKLE_COLORS: Record<string, string[]> = {
   pearl: ['#ffffff', '#cfe9ff', '#ffd1e8'],
 };
 const _vec3B = new THREE.Vector3();
+const _vec3C = new THREE.Vector3();
 
 export type GameState = 'title' | 'playing' | 'paused' | 'victory';
 export type PaceMode = 'epic' | 'cozy';
@@ -97,6 +100,8 @@ export interface GameCallbacks {
   /** An animal not met yet is close enough to sniff (or null when none is). */
   onNearbyFriendChange: (kind: FriendKind | null) => void;
   onMiniGameChange: (info: MiniGameInfo) => void;
+  /** Whiskers swam into (true) or out of (false) his fish house. */
+  onHouseChange: (open: boolean) => void;
 }
 
 export type Difficulty = 'gentle' | 'normal' | 'tricky';
@@ -146,6 +151,21 @@ export class GameEngine {
   private rainbow: RainbowGoal;
   private badGuys: BadGuys;
   private cats: BushCats;
+  private house: FishHouse;
+  private geysers: BubbleGeysers;
+  private dive: TreasureDive;
+  private otter: Otter;
+  private falls: WaterfallSlide;
+  /** Inside the fish house (and which part of the room we're looking at), or null. */
+  public houseView: HouseView | null = null;
+  private houseTime = 0;
+  private houseCooldown = 0;
+  private houseLook = new THREE.Vector3();
+  private stickerCache: Partial<Record<FriendKind, string>> | null = null;
+  private stickerCacheCount = -1;
+  private isJumping = false;
+  private jumpVel = 0;
+  private rideTangent = new THREE.Vector3();
   private lastBadGuyTip: number = -999;
   /** Dress-up shop is open: the title camera moves in close on Whiskers. */
   public showcase: boolean = false;
@@ -319,6 +339,12 @@ export class GameEngine {
     this.rainbow = new RainbowGoal(this.scene);
     this.badGuys = new BadGuys(this.scene);
     this.cats = new BushCats(this.scene);
+    this.house = new FishHouse(this.scene);
+    this.geysers = new BubbleGeysers(this.scene);
+    this.dive = new TreasureDive(this.scene);
+    this.otter = new Otter(this.scene);
+    this.falls = new WaterfallSlide(this.scene);
+    this.riverWorld.friendSpots.push({ kind: 'otter', object: this.otter.body });
     this.fireflies = new Fireflies(this.scene);
     this.race = new DolphinRace(this.scene, this.riverWorld.dolphins[0]);
     try {
@@ -355,6 +381,11 @@ export class GameEngine {
     this.streamer.addChildrenOf(this.badGuys.caimanGroup, 140);
     this.streamer.addChildrenOf(this.badGuys.piranhaGroup, 140);
     this.streamer.addChildrenOf(this.cats.group, 140);
+    this.streamer.addChildrenOf(this.house.group, 260);
+    this.streamer.addChildrenOf(this.geysers.group, 200);
+    this.streamer.addChildrenOf(this.dive.group, 170);
+    this.streamer.add(this.otter.group, this.scene, 200);
+    this.streamer.add(this.falls.group, this.scene, 240);
     this.streamer.addChildrenOf(this.race.group, 170);
     this.applyOutfit(loadCloset().outfit);
     this.applyChapterLook(CHAPTERS[0], 0);
@@ -569,6 +600,10 @@ export class GameEngine {
     this.rainbow.reset();
     this.badGuys.reset();
     this.cats.reset();
+    this.houseView = null;
+    this.isJumping = false;
+    this.jumpVel = 0;
+    this.falls.cancel();
     this.race.reset();
     this.hideSeek.stop(this.riverWorld);
     this.hideSeekInviteTimer = 0;
@@ -642,7 +677,7 @@ export class GameEngine {
     this.turnVelocity = 0;
     this.gameState = 'playing';
     this.callbacks.onStateChange('playing');
-    this.callbacks.onTipMessage('Swim anywhere! Turn left and right to explore.');
+    this.callbacks.onTipMessage('Swim anywhere! Find your fish house, bubble jumps and hidden pearls.');
     this.hideSeekInviteTimer = 7;
     this.emitMiniGame(null);
   }
@@ -653,6 +688,8 @@ export class GameEngine {
     if (this.hideSeek.active) {
       this.hideSeek.showDirection(this.player.group.position, this.sparkles);
       narrator.say('Pip is that way!', true);
+    } else if (this.isFreeSwim && this.dive.foundCount < this.dive.total) {
+      this.dive.showDirection(this.player.group.position, this.sparkles);
     }
     if (this.sniffCooldownTimer > 0) return;
     this.sniffActiveTimer = this.SNIFF_DURATION;
@@ -765,6 +802,7 @@ export class GameEngine {
       }
 
       this.forest.update(dt);
+      this.updateLakeWorld(dt);
       this.waterLook.uniforms.uTime.value += dt;
       this.streamer.update(dt, this.player.group.position);
       this.adaptiveResolution.update(rawDt);
@@ -796,8 +834,13 @@ export class GameEngine {
 
   /** Free swimming in the Grand Lake: Whiskers keeps cruising and turns to go anywhere. */
   private updateLakeSwim(dt: number, steerX: number, diveY: number, isBoosting: boolean) {
+    if (this.falls.isRiding) {
+      this.updateFallsRide(dt);
+      return;
+    }
     const speedCfg = this.SPEEDS[this.paceMode];
     this.swimSeconds += dt;
+    this.houseCooldown = Math.max(0, this.houseCooldown - dt);
     this.turnVelocity = THREE.MathUtils.damp(this.turnVelocity, -steerX * 2.0, 6, dt);
     this.freeHeading += this.turnVelocity * dt;
 
@@ -809,8 +852,16 @@ export class GameEngine {
     const step = this.forwardSpeed * dt;
     const nx = p.x + fx * step + this.bumpVelX * dt;
     const nz = p.z + fz * step + this.bumpVelZ * dt;
+    _vec3C.set(nx, p.y, nz);
+    if (this.houseCooldown <= 0 && !this.isJumping && this.house.isAtDoor(_vec3C)) {
+      this.enterHouse();
+      return;
+    }
     const next = worldToRiver(nx, nz);
+    const hitsHouse = this.house.hitsWall(_vec3C);
+    if (hitsHouse && this.bumpCooldown <= 0) this.bump(this.house.center);
     const inside =
+      !hitsHouse &&
       next.distance > this.LAKE_NEAR_EDGE &&
       next.distance < this.LAKE_FAR_EDGE &&
       getRiverBedElevationAt(next.distance, next.lateral) < -1.3;
@@ -832,16 +883,33 @@ export class GameEngine {
     }
 
     const bed = getRiverBedElevationAt(this.playerDistance, this.playerLateral);
-    this.depthVelocity = THREE.MathUtils.damp(this.depthVelocity, diveY * 5.2, 6.5, dt);
-    this.playerDepth = THREE.MathUtils.clamp(
-      this.playerDepth + this.depthVelocity * dt,
-      Math.min(-0.85, bed + 0.45),
-      -0.38
-    );
+    let pitch = diveY;
+    if (this.isJumping) {
+      // Bubble jump: up out of the water and back down with a splash.
+      this.jumpVel -= 22 * dt;
+      this.playerDepth += this.jumpVel * dt;
+      pitch = THREE.MathUtils.clamp(this.jumpVel / 5, -2, 2);
+      if (this.jumpVel < 0 && this.playerDepth < -0.5) {
+        this.isJumping = false;
+        this.jumpVel = 0;
+        this.playerDepth = -0.6;
+        this.depthVelocity = -2;
+        sound.playSplash();
+        _vec3B.set(x, 0.1, z);
+        this.sparkles.burst(_vec3B, ['#ffffff', '#bff6ff', '#7fd8ff'], 28, 4.5, 2.4);
+      }
+    } else {
+      this.depthVelocity = THREE.MathUtils.damp(this.depthVelocity, diveY * 5.2, 6.5, dt);
+      this.playerDepth = THREE.MathUtils.clamp(
+        this.playerDepth + this.depthVelocity * dt,
+        Math.min(-0.85, bed + 0.45),
+        -0.38
+      );
+    }
 
     this.player.group.position.set(x, this.playerDepth, z);
     this.player.group.rotation.y = this.freeHeading;
-    this.player.update(dt, this.forwardSpeed, steerX, diveY);
+    this.player.update(dt, this.forwardSpeed, steerX, pitch);
 
     this.dirLight.position.set(x + 25, 48, z + 15);
     this.dirLight.target.position.set(x, this.playerDepth, z);
@@ -906,6 +974,10 @@ export class GameEngine {
   }
 
   private updateGame(dt: number) {
+    if (this.houseView) {
+      this.updateHouse(dt);
+      return;
+    }
     const speedCfg = this.SPEEDS[this.paceMode];
 
     let steerX = 0;
@@ -1268,6 +1340,182 @@ export class GameEngine {
     }
   }
 
+  // ------------------------------------------------------------ Grand Lake: house & fun
+
+  /** Decorations Whiskers owns (from the grown-up-free star shop in the house). */
+  public setHouseDecor(owned: string[]) {
+    this.house.setOwned(owned);
+  }
+
+  private enterHouse() {
+    this.houseView = 'room';
+    this.houseTime = 0;
+    this.isJumping = false;
+    this.house.setTrophies(this.counts);
+    if (!this.stickerCache || this.stickerCacheCount !== this.metFriends.size) {
+      this.stickerCache = this.drawFriendStickers(256);
+      this.stickerCacheCount = this.metFriends.size;
+    }
+    this.house.setFriendPictures([...this.metFriends], this.stickerCache);
+    this.riverWorld.setFamilyFollow(this.house.exitPose().pos);
+    const pose = this.house.viewPose('room', 0);
+    this.camera.position.copy(pose.cam);
+    this.houseLook.copy(pose.look);
+    this.player.group.position.copy(pose.whiskers);
+    this.callbacks.onHouseChange(true);
+    sound.playMilestone();
+    narrator.say('Welcome home! This is your fish house.', true);
+  }
+
+  public setHouseView(view: HouseView) {
+    if (this.houseView) this.houseView = view;
+  }
+
+  public exitHouse() {
+    if (!this.houseView) return;
+    this.houseView = null;
+    const { pos, heading } = this.house.exitPose();
+    this.player.group.position.copy(pos);
+    this.player.group.rotation.set(0, heading, 0);
+    this.freeHeading = heading;
+    this.turnVelocity = 0;
+    this.forwardSpeed = 2;
+    const r = worldToRiver(pos.x, pos.z);
+    this.playerDistance = r.distance;
+    this.playerLateral = r.lateral;
+    this.playerDepth = pos.y;
+    this.houseCooldown = 2.5;
+    this.riverWorld.setFamilyFollow(this.player.group.position);
+    this.camera.position.set(pos.x - Math.sin(heading) * 6.2, 1.5, pos.z - Math.cos(heading) * 6.2);
+    this.callbacks.onHouseChange(false);
+  }
+
+  private updateHouse(dt: number) {
+    if (!this.houseView) return;
+    this.houseTime += dt;
+    this.house.update(dt);
+    const pose = this.house.viewPose(this.houseView, this.houseTime);
+    const p = this.player.group.position;
+    p.lerp(pose.whiskers, Math.min(1, dt * (this.houseView === 'bed' ? 2.5 : 5)));
+    const g = this.player.group;
+    const dy = Math.atan2(Math.sin(pose.yaw - g.rotation.y), Math.cos(pose.yaw - g.rotation.y));
+    g.rotation.y += dy * Math.min(1, dt * 5);
+    this.player.update(dt, this.houseView === 'bed' ? 0.15 : 1.4, 0, 0);
+    this.camera.position.lerp(pose.cam, Math.min(1, dt * 3));
+    this.houseLook.lerp(pose.look, Math.min(1, dt * 3));
+    this.camera.lookAt(this.houseLook);
+    this.dirLight.position.set(p.x + 25, 48, p.z + 15);
+    this.dirLight.target.position.copy(p);
+    this.dirLight.target.updateMatrixWorld();
+  }
+
+  private startJump() {
+    this.isJumping = true;
+    this.jumpVel = 12.5;
+    sound.playWaterHop();
+    this.sparkles.burst(this.player.group.position, ['#ffffff', '#bff6ff'], 20, 3.5, 2);
+    if (dailyAllowance('jump', 10)) {
+      this.rewardStars(1, 5);
+      this.callbacks.onTreasurePopup('Bubble jump!', 1, '🫧');
+    } else {
+      this.callbacks.onTreasurePopup('Bubble jump!', 0, '🫧');
+    }
+  }
+
+  private updateFallsRide(dt: number) {
+    const p = this.player.group.position;
+    const ev = this.falls.updateRide(dt, _vec3C, this.rideTangent);
+    p.copy(_vec3C);
+    const t = this.rideTangent;
+    if (Math.hypot(t.x, t.z) > 0.05) {
+      const want = Math.atan2(t.x, t.z);
+      const d = Math.atan2(Math.sin(want - this.freeHeading), Math.cos(want - this.freeHeading));
+      this.freeHeading += d * Math.min(1, dt * 8);
+    }
+    this.player.group.rotation.y = this.freeHeading;
+    this.player.update(dt, 6, 0, THREE.MathUtils.clamp(t.y * 3, -2, 2));
+    this.camera.position.lerp(this.falls.camSpot, Math.min(1, dt * 2));
+    this.camera.lookAt(p);
+    if (ev === 'whee') {
+      sound.playWhee();
+      narrator.say('Wheeee!', true);
+    } else if (ev === 'splash') {
+      sound.playSplash();
+      _vec3B.set(p.x, 0.1, p.z);
+      this.sparkles.burst(_vec3B, ['#ffffff', '#bff6ff', '#7fd8ff'], 34, 5, 2.6);
+    } else if (ev === 'done') {
+      this.riverWorld.setFamilyFollow(p);
+      const r = worldToRiver(p.x, p.z);
+      this.playerDistance = r.distance;
+      this.playerLateral = r.lateral;
+      this.playerDepth = Math.min(-0.6, p.y);
+      this.forwardSpeed = 4;
+      if (dailyAllowance('slide', 5)) {
+        this.rewardStars(2, 10);
+        this.callbacks.onTreasurePopup('Waterfall slide!', 2, '🌊');
+      } else {
+        this.callbacks.onTreasurePopup('Waterfall slide!', 0, '🌊');
+      }
+    }
+  }
+
+  /** Lake things animate every frame; games only run while free swimming. */
+  private updateLakeWorld(dt: number) {
+    const p = this.player.group.position;
+    const playing = this.gameState === 'playing' && this.isFreeSwim && !this.houseView;
+    const canPlay = playing && !this.falls.isRiding;
+
+    if (this.geysers.update(dt, p, canPlay && !this.isJumping) >= 0) this.startJump();
+
+    this.falls.update(dt, p);
+    if (canPlay && !this.isJumping && this.falls.tryStart(p)) {
+      this.riverWorld.setFamilyFollow(this.falls.entry); // the family waits at the bottom
+      this.callbacks.onTipMessage('Whoosh! Up the bubble lift!');
+      sound.playMilestone();
+    }
+
+    if (canPlay && this.dive.update(dt, p)) {
+      const n = this.dive.foundCount;
+      const all = n >= this.dive.total;
+      this.rewardStars(all ? 8 : 3, 15);
+      sound.playCollectTreasure('pearl');
+      this.sparkles.burst(p, ['#ffe8f6', '#ffffff', '#c58ae0'], 30, 3, 1.4);
+      if (all) {
+        this.callbacks.onTreasurePopup('All the pearls! Come back tomorrow for more!', 8, '🦪');
+        narrator.say(cheer('You found all the pearls today'), true);
+      } else {
+        this.callbacks.onTreasurePopup(`Pearl ${n} of ${this.dive.total}!`, 3, '🦪');
+      }
+    }
+
+    const speedCfg = this.SPEEDS[this.paceMode];
+    const fleeSpeed = (speedCfg.base * 0.85 + speedCfg.boost) / 2;
+    const ev = this.otter.update(dt, p, fleeSpeed, canPlay && !this.hideSeek.active);
+    if (ev === 'invite') {
+      if (!this.metFriends.has('otter')) this.meetFriend('otter', true);
+      this.callbacks.onTipMessage('The otter wants to play tag! Catch it! Zoom!');
+      narrator.say('Tag! Catch the otter!', true);
+    } else if (ev === 'tag') {
+      sound.playGiggle();
+      this.sparkles.burst(p, ['#ffd23f', '#ffffff', '#ffb36b'], 22, 3, 1.4);
+      if (dailyAllowance('tag', 30)) {
+        this.rewardStars(1, 5);
+        this.callbacks.onTreasurePopup('Tag! Again!', 1, '🦦');
+      } else {
+        this.callbacks.onTreasurePopup('Tag! Again!', 0, '🦦');
+      }
+    } else if (ev === 'win') {
+      sound.playMissionComplete();
+      this.sparkles.burst(p, CONFETTI, 40, 4, 1.5);
+      const stars = dailyAllowance('tagwin', 3) ? 5 : 0;
+      if (stars) this.rewardStars(stars, 25);
+      this.callbacks.onTreasurePopup('You won tag!', stars, '🏆');
+      narrator.say(cheer('You won tag'), true);
+    } else if (ev === 'bye') {
+      this.callbacks.onTipMessage('The otter is tired. Play again later!');
+    }
+  }
+
   private rewardStars(stars: number, points: number) {
     this.counts.stars += stars;
     this.counts.totalPoints += points;
@@ -1603,6 +1851,11 @@ export class GameEngine {
     this.sparkles.dispose();
     this.rainbow.dispose();
     this.badGuys.dispose();
+    this.house.dispose();
+    this.geysers.dispose();
+    this.dive.dispose();
+    this.otter.dispose();
+    this.falls.dispose();
     this.cats.dispose();
     this.fireflies.dispose();
     this.race.dispose();

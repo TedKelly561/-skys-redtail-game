@@ -464,6 +464,57 @@ class SoundManager {
     osc.stop(now + dur + 0.02);
   }
 
+  /** "Wheee!" sliding down the waterfall. */
+  public playWhee() {
+    this.initCtx();
+    if (!this.ctx || !this.masterGain || this.isMuted) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    const lfo = this.ctx.createOscillator();
+    const lfoGain = this.ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(500, now);
+    osc.frequency.exponentialRampToValueAtTime(1300, now + 0.35);
+    osc.frequency.exponentialRampToValueAtTime(420, now + 1.3);
+    lfo.frequency.setValueAtTime(7, now);
+    lfoGain.gain.setValueAtTime(25, now);
+    lfo.connect(lfoGain);
+    lfoGain.connect(osc.frequency);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.22, now + 0.08);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 1.35);
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+    osc.start(now);
+    lfo.start(now);
+    osc.stop(now + 1.4);
+    lfo.stop(now + 1.4);
+  }
+
+  /** A quick happy giggle (the otter, when tagged). */
+  public playGiggle() {
+    this.initCtx();
+    if (!this.ctx || !this.masterGain || this.isMuted) return;
+    const now = this.ctx.currentTime;
+    [0, 0.09, 0.18, 0.27].forEach((d, k) => {
+      if (!this.ctx || !this.masterGain) return;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sine';
+      const f = 900 + (k % 2) * 250 - k * 40;
+      osc.frequency.setValueAtTime(f, now + d);
+      osc.frequency.exponentialRampToValueAtTime(f * 1.3, now + d + 0.06);
+      gain.gain.setValueAtTime(0.0001, now + d);
+      gain.gain.exponentialRampToValueAtTime(0.2, now + d + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + d + 0.08);
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+      osc.start(now + d);
+      osc.stop(now + d + 0.09);
+    });
+  }
+
   /** A big cartoon SPLASH. */
   public playSplash() {
     this.initCtx();

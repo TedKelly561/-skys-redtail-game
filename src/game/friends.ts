@@ -11,6 +11,7 @@ export type FriendKind =
   | 'dragonfly'
   | 'capybara'
   | 'dolphin'
+  | 'otter'
   | 'family'
   | 'rainbow';
 
@@ -30,6 +31,7 @@ export const FRIENDS: FriendInfo[] = [
   { kind: 'dragonfly', name: 'Dragonfly', hint: 'Flying above the water' },
   { kind: 'capybara', name: 'Capybara', hint: 'Resting on the riverbank' },
   { kind: 'dolphin', name: 'Pink Dolphin', hint: 'Jumping near the end' },
+  { kind: 'otter', name: 'Otter', hint: 'Playing tag in the Grand Lake' },
   { kind: 'family', name: 'Catfish Family', hint: 'Waiting at the Grand Lake' },
   { kind: 'rainbow', name: 'Rainbow Pearl', hint: 'Under the rainbow at the Grand Lake', special: true },
 ];
