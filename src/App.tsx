@@ -16,6 +16,8 @@ import { GrownUpsModal } from './components/GrownUpsModal';
 import { DailyMissionsModal } from './components/DailyMissionsModal';
 import { StickerBook } from './components/StickerBook';
 import { DressUpShop } from './components/DressUpShop';
+import { FishHouseRoom } from './components/FishHouseRoom';
+import { HouseItem, HouseState, HouseView, loadHouse, saveHouse } from './game/house';
 import { ClosetItem, ClosetSlot, ClosetState, loadCloset, saveCloset } from './game/closet';
 import { sound } from './game/audio';
 import { narrator } from './game/voice';
@@ -84,7 +86,12 @@ export default function App() {
       return false;
     }
   });
-  const wallet = Math.max(0, counts.stars - closet.spent);
+  // Whiskers' fish house in the Grand Lake (decorations also cost stars).
+  const [house, setHouse] = useState<HouseState>(() => loadHouse());
+  const [inHouse, setInHouse] = useState<boolean>(false);
+  const [houseView, setHouseViewState] = useState<HouseView>('room');
+  const [sleeping, setSleeping] = useState<boolean>(false);
+  const wallet = Math.max(0, counts.stars - closet.spent - house.spent);
   const shownCounts = { ...counts, stars: wallet };
   const [stickers, setStickers] = useState<Partial<Record<FriendKind, string>>>({});
 
@@ -209,6 +216,11 @@ export default function App() {
       onFriendsChange: (met) => setMetFriends(met),
       onNearbyFriendChange: (kind) => setFriendNearby(kind !== null),
       onMiniGameChange: (info) => setMiniGame(info),
+      onHouseChange: (open) => {
+        setInHouse(open);
+        setHouseViewState('room');
+        setSleeping(false);
+      },
       onChapterChange: (chap) => setCurrentChapter(chap),
       onStateChange: (state) => setGameState(state),
       onTimeChange: (sec) => setElapsedSeconds(sec),
@@ -217,6 +229,7 @@ export default function App() {
     });
 
     engineRef.current = engine;
+    engine.setHouseDecor(loadHouse().owned);
     if (import.meta.env.DEV) {
       (window as unknown as { __whiskers?: GameEngine }).__whiskers = engine;
     }
@@ -398,6 +411,34 @@ export default function App() {
     narrator.say(next ? 'Night time! Look for the fireflies!' : 'Good morning, Whiskers!', true);
   };
 
+  const changeHouseView = (view: HouseView) => {
+    setHouseViewState(view);
+    engineRef.current?.setHouseView(view);
+    if (view === 'trophies') narrator.say('Look at all the treasures you found!', true);
+    else if (view === 'friends') narrator.say('Here are all your friends!', true);
+  };
+
+  const buyHouseItem = (item: HouseItem) => {
+    if (house.owned.includes(item.id) || wallet < item.price) return;
+    const next = { owned: [...house.owned, item.id], spent: house.spent + item.price };
+    setHouse(next);
+    saveHouse(next);
+    engineRef.current?.setHouseDecor(next.owned);
+    sound.playMissionComplete();
+    narrator.say(`You got a ${item.name.toLowerCase()} for your house!`, true);
+  };
+
+  const goToBed = () => {
+    if (sleeping) return;
+    changeHouseView('bed');
+    window.setTimeout(() => setSleeping(true), 900);
+    window.setTimeout(() => toggleNight(), 3200);
+    window.setTimeout(() => {
+      setSleeping(false);
+      changeHouseView('room');
+    }, 4600);
+  };
+
   const openShop = () => {
     const engine = engineRef.current;
     if (engine?.gameState === 'playing') engine.pauseGame();
@@ -548,7 +589,7 @@ export default function App() {
       )}
 
       {/* Active Game HUD */}
-      {(gameState === 'playing' || gameState === 'paused') && (
+      {(gameState === 'playing' || gameState === 'paused') && !inHouse && (
         <GameHUD
           tummy={tummy}
           counts={shownCounts}
@@ -570,6 +611,21 @@ export default function App() {
           onOpenFriends={openFriends}
           miniGame={miniGame}
           onStartHideSeek={() => engineRef.current?.startHideAndSeek()}
+        />
+      )}
+
+      {/* Inside Whiskers' fish house */}
+      {gameState === 'playing' && inHouse && (
+        <FishHouseRoom
+          wallet={wallet}
+          house={house}
+          view={houseView}
+          sleeping={sleeping}
+          isNight={isNight}
+          onView={changeHouseView}
+          onBuy={buyHouseItem}
+          onBedtime={goToBed}
+          onExit={() => engineRef.current?.exitHouse()}
         />
       )}
 
