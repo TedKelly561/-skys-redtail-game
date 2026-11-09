@@ -516,7 +516,7 @@ export default function App() {
   };
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-slate-950 font-sans select-none">
+    <div className="app-root relative w-screen overflow-hidden bg-slate-950 font-sans select-none">
       {/* Isolated Three.js Canvas Container */}
       <div
         ref={mountRef}
