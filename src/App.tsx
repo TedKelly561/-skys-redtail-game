@@ -20,6 +20,7 @@ import { FishHouseRoom } from './components/FishHouseRoom';
 import { HouseItem, HouseState, HouseView, loadHouse, saveHouse } from './game/house';
 import { BuddyLook, loadBuddy, saveBuddy } from './game/buddy';
 import { Photo, framePhoto, loadAlbum, saveAlbum } from './game/photos';
+import { SeasonSetting, loadSeasonSetting } from './game/seasons';
 import { PhotoAlbum, PhotoView } from './components/Photos';
 import { ClosetItem, ClosetSlot, ClosetState, loadCloset, saveCloset } from './game/closet';
 import { sound } from './game/audio';
@@ -71,6 +72,7 @@ export default function App() {
   const [readAloud, setReadAloud] = useState<boolean>(() => narrator.getEnabled());
   const [musicOn, setMusicOn] = useState<boolean>(() => music.getEnabled());
   const [difficulty, setDifficulty] = useState<Difficulty>(() => GameEngine.loadDifficulty());
+  const [season, setSeason] = useState<SeasonSetting>(() => loadSeasonSetting());
   const [metFriends, setMetFriends] = useState<FriendKind[]>([]);
   const [friendNearby, setFriendNearby] = useState<boolean>(false);
   const [isFriendsOpen, setIsFriendsOpen] = useState<boolean>(false);
@@ -758,6 +760,11 @@ export default function App() {
         onSetMusic={handleSetMusic}
         difficulty={difficulty}
         onSetDifficulty={handleSetDifficulty}
+        season={season}
+        onSetSeason={(v) => {
+          setSeason(v);
+          engineRef.current?.setSeasonSetting(v);
+        }}
       />
 
       {/* Dress-up shop */}

@@ -21,6 +21,7 @@ import { BadGuys } from './badGuys';
 import { BushCats, CatTuning } from './cats';
 import { FishHouse, HouseView } from './house';
 import { BabyFish, BuddyLook } from './buddy';
+import { SeasonEffects, SeasonSetting, isHolidayTime, loadSeasonSetting, patchSeasonal, resolveSeason, saveSeasonSetting } from './seasons';
 import { BubbleGeysers, Otter, TreasureDive, WaterfallSlide, dailyAllowance } from './lakeFun';
 import { Fireflies } from './fireflies';
 import { music } from './music';
@@ -157,6 +158,8 @@ export class GameEngine {
   private badGuys: BadGuys;
   private cats: BushCats;
   private buddy: BabyFish;
+  private seasonFx: SeasonEffects;
+  public seasonSetting: SeasonSetting = 'auto';
   private buddyName = '';
   private house: FishHouse;
   private geysers: BubbleGeysers;
@@ -400,6 +403,13 @@ export class GameEngine {
     this.applyOutfit(loadCloset().outfit);
     this.applyChapterLook(CHAPTERS[0], 0);
     this.setDifficulty(GameEngine.loadDifficulty());
+    // Seasons: trees, grass and banks change color; leaves or snow fall.
+    patchSeasonal(this.forest.leafMaterial, 'leaf');
+    patchSeasonal(this.forest.solidMaterial, 'leaf'); // round tree crowns are solid blobs; trunks and rocks aren't green so they stay put
+    patchSeasonal(this.riverWorld.bankGrassInstancedMesh.material as THREE.Material, 'grass');
+    patchSeasonal(this.riverWorld.riverBedMaterial, 'ground');
+    this.seasonFx = new SeasonEffects(this.scene);
+    this.setSeasonSetting(loadSeasonSetting(), false);
     this.adaptiveResolution = new AdaptiveResolution(
       this.renderer,
       this.isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2)
@@ -845,6 +855,7 @@ export class GameEngine {
       this.forest.update(dt);
       this.updateLakeWorld(dt);
       if (this.buddy.group.visible) this.buddy.update(dt, this.player.group);
+      this.seasonFx.update(dt, this.camera.position);
       this.waterLook.uniforms.uTime.value += dt;
       this.streamer.update(dt, this.player.group.position);
       this.adaptiveResolution.update(rawDt);
@@ -1597,6 +1608,13 @@ export class GameEngine {
     }
   }
 
+  /** Grown-ups season choice ('auto' follows the calendar). */
+  public setSeasonSetting(setting: SeasonSetting, save = true) {
+    this.seasonSetting = setting;
+    if (save) saveSeasonSetting(setting);
+    this.seasonFx.setSeason(resolveSeason(setting), isHolidayTime());
+  }
+
   /** Whiskers' baby fish buddy (null hides it). */
   public setBuddy(look: BuddyLook | null) {
     this.buddy.group.visible = !!look;
@@ -1946,6 +1964,7 @@ export class GameEngine {
     this.rainbow.dispose();
     this.badGuys.dispose();
     this.buddy.dispose();
+    this.seasonFx.dispose();
     this.house.dispose();
     this.geysers.dispose();
     this.dive.dispose();
