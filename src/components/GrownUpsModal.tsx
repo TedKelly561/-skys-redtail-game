@@ -3,6 +3,7 @@ import { User } from 'firebase/auth';
 import { X, Cloud, CloudOff, LogOut, CheckCircle2, Share, Download } from 'lucide-react';
 import { Difficulty, PaceMode, TreasureCounts } from '../game/engine';
 import { getInstallStatus, InstallStatus, onInstallChange, promptInstall } from '../game/install';
+import { SeasonSetting } from '../game/seasons';
 import { CHAPTERS } from '../game/worldGen';
 import { MAX_NAME_LENGTH } from '../game/profile';
 
@@ -60,6 +61,10 @@ interface GrownUpsModalProps {
   onSetMusic: (on: boolean) => void;
   difficulty: Difficulty;
   onSetDifficulty: (level: Difficulty) => void;
+  season: SeasonSetting;
+  onSetSeason: (season: SeasonSetting) => void;
+  learningOn: boolean;
+  onSetLearning: (on: boolean) => void;
 }
 
 export const GrownUpsModal: React.FC<GrownUpsModalProps> = ({
@@ -84,6 +89,10 @@ export const GrownUpsModal: React.FC<GrownUpsModalProps> = ({
   onSetMusic,
   difficulty,
   onSetDifficulty,
+  season,
+  onSetSeason,
+  learningOn,
+  onSetLearning,
 }) => {
   const [nameDraft, setNameDraft] = useState(playerName);
   useEffect(() => {
@@ -222,6 +231,19 @@ export const GrownUpsModal: React.FC<GrownUpsModalProps> = ({
 
           <label className="mt-3 flex items-center justify-between gap-3 cursor-pointer">
             <span>
+              <span className="block text-sm font-bold text-sky-200">Learning moments</span>
+              <span className="block text-[11px] text-slate-400">Colors, letters and counting during the swim</span>
+            </span>
+            <input
+              type="checkbox"
+              checked={learningOn}
+              onChange={(e) => onSetLearning(e.target.checked)}
+              className="w-6 h-6 accent-teal-400 cursor-pointer"
+            />
+          </label>
+
+          <label className="mt-3 flex items-center justify-between gap-3 cursor-pointer">
+            <span>
               <span className="block text-sm font-bold text-sky-200">Background music</span>
               <span className="block text-[11px] text-slate-400">Soft tunes while swimming</span>
             </span>
@@ -285,6 +307,35 @@ export const GrownUpsModal: React.FC<GrownUpsModalProps> = ({
               </button>
             ))}
           </div>
+        </section>
+
+        {/* Season */}
+        <section className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800 mb-3">
+          <div className="text-sm font-bold text-amber-200 mb-2">Season</div>
+          <div className="grid grid-cols-4 gap-2">
+            {(
+              [
+                { v: 'auto', label: 'Auto', icon: '📅' },
+                { v: 'summer', label: 'Summer', icon: '☀️' },
+                { v: 'autumn', label: 'Autumn', icon: '🍂' },
+                { v: 'winter', label: 'Winter', icon: '❄️' },
+              ] as { v: SeasonSetting; label: string; icon: string }[]
+            ).map((opt) => (
+              <button
+                key={opt.v}
+                onClick={() => onSetSeason(opt.v)}
+                className={`py-2 px-1 rounded-xl text-center transition cursor-pointer border ${
+                  season === opt.v
+                    ? 'bg-amber-400 border-amber-200 text-slate-950'
+                    : 'bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700'
+                }`}
+              >
+                <div className="text-lg leading-none">{opt.icon}</div>
+                <div className="text-[11px] font-bold mt-1">{opt.label}</div>
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-slate-400 mt-1.5">Auto follows the calendar. December adds holiday lights.</p>
         </section>
 
         {/* Home screen app */}

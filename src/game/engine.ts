@@ -20,6 +20,9 @@ import { RainbowGoal } from './rainbow';
 import { BadGuys } from './badGuys';
 import { BushCats, CatTuning } from './cats';
 import { FishHouse, HouseView } from './house';
+import { BabyFish, BuddyLook } from './buddy';
+import { LearningEvent, LearningMoments, LearningPrompt } from './learning';
+import { SeasonEffects, SeasonSetting, isHolidayTime, loadSeasonSetting, patchSeasonal, resolveSeason, saveSeasonSetting } from './seasons';
 import { BubbleGeysers, Otter, TreasureDive, WaterfallSlide, dailyAllowance } from './lakeFun';
 import { Fireflies } from './fireflies';
 import { music } from './music';
@@ -102,6 +105,8 @@ export interface GameCallbacks {
   onMiniGameChange: (info: MiniGameInfo) => void;
   /** Whiskers swam into (true) or out of (false) his fish house. */
   onHouseChange: (open: boolean) => void;
+  /** A learning question to show (null hides it). */
+  onLearningPrompt: (prompt: LearningPrompt | null) => void;
 }
 
 export type Difficulty = 'gentle' | 'normal' | 'tricky';
@@ -155,6 +160,11 @@ export class GameEngine {
   private rainbow: RainbowGoal;
   private badGuys: BadGuys;
   private cats: BushCats;
+  private buddy: BabyFish;
+  private learning: LearningMoments;
+  private seasonFx: SeasonEffects;
+  public seasonSetting: SeasonSetting = 'auto';
+  private buddyName = '';
   private house: FishHouse;
   private geysers: BubbleGeysers;
   private dive: TreasureDive;
@@ -333,6 +343,9 @@ export class GameEngine {
 
     this.player = new CatfishCharacter();
     this.scene.add(this.player.group);
+    this.buddy = new BabyFish(this.scene);
+    this.learning = new LearningMoments(this.scene);
+    this.buddy.group.visible = false;
 
     this.riverWorld = new RiverWorld(this.scene);
     this.itemManager = new ItemManager(this.scene);
@@ -395,6 +408,13 @@ export class GameEngine {
     this.applyOutfit(loadCloset().outfit);
     this.applyChapterLook(CHAPTERS[0], 0);
     this.setDifficulty(GameEngine.loadDifficulty());
+    // Seasons: trees, grass and banks change color; leaves or snow fall.
+    patchSeasonal(this.forest.leafMaterial, 'leaf');
+    patchSeasonal(this.forest.solidMaterial, 'leaf'); // round tree crowns are solid blobs; trunks and rocks aren't green so they stay put
+    patchSeasonal(this.riverWorld.bankGrassInstancedMesh.material as THREE.Material, 'grass');
+    patchSeasonal(this.riverWorld.riverBedMaterial, 'ground');
+    this.seasonFx = new SeasonEffects(this.scene);
+    this.setSeasonSetting(loadSeasonSetting(), false);
     this.adaptiveResolution = new AdaptiveResolution(
       this.renderer,
       this.isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2)
@@ -638,6 +658,8 @@ export class GameEngine {
     this.isJumping = false;
     this.jumpVel = 0;
     this.falls.cancel();
+    this.learning.reset();
+    this.callbacks.onLearningPrompt(null);
     this.race.reset();
     this.hideSeek.stop(this.riverWorld);
     this.hideSeekInviteTimer = 0;
@@ -673,8 +695,9 @@ export class GameEngine {
     this.ringManager.reset();
     this.chestManager.reset();
     const name = getPlayerName();
+    const buddy = this.buddyName ? ` ${this.buddyName} is coming too!` : '';
     this.callbacks.onTipMessage(
-      name ? `Let's go, ${name}! Swim to the Grand Lake!` : 'Swim down the river to the Grand Lake!'
+      name ? `Let's go, ${name}!${buddy || ' Swim to the Grand Lake!'}` : `Swim down the river to the Grand Lake!${buddy}`
     );
   }
 
@@ -706,6 +729,8 @@ export class GameEngine {
 
   public startFreeSwim() {
     if (this.gameState !== 'victory') return;
+    this.learning.clear();
+    this.callbacks.onLearningPrompt(null);
     this.isFreeSwim = true;
     this.freeHeading = this.player.group.rotation.y;
     this.turnVelocity = 0;
@@ -764,6 +789,7 @@ export class GameEngine {
     saveMetFriends(this.metFriends);
     this.callbacks.onFriendsChange([...this.metFriends]);
     if (!announce) return;
+    this.buddy.celebrate();
     const name = friendName(kind);
     this.counts.totalPoints += 20;
     this.saveLocalProgress();
@@ -772,6 +798,20 @@ export class GameEngine {
     this.callbacks.onTreasurePopup(`Hi, ${name}!`, 20, '👋');
     this.sparkles.burst(this.player.group.position, ['#ff8fc0', '#ffffff', '#ffd1e8'], 26, 3);
     narrator.say(`Hi, ${name}! You made a new friend!`, true);
+  }
+
+  /** Friends met on another device (from the cloud save). */
+  public addFriends(kinds: FriendKind[]) {
+    let changed = false;
+    for (const k of kinds) {
+      if (!this.metFriends.has(k)) {
+        this.metFriends.add(k);
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    saveMetFriends(this.metFriends);
+    this.callbacks.onFriendsChange([...this.metFriends]);
   }
 
   private tryMeetNearbyFriend() {
@@ -837,6 +877,8 @@ export class GameEngine {
 
       this.forest.update(dt);
       this.updateLakeWorld(dt);
+      if (this.buddy.group.visible) this.buddy.update(dt, this.player.group);
+      this.seasonFx.update(dt, this.camera.position);
       this.waterLook.uniforms.uTime.value += dt;
       this.streamer.update(dt, this.player.group.position);
       this.adaptiveResolution.update(rawDt);
@@ -1203,6 +1245,11 @@ export class GameEngine {
     const level = DIFFICULTY[this.difficulty];
     this.updateBadGuys(dt, isBoosting, level.chase === 'slow' ? speedCfg.base * 0.9 : speedCfg.boost * level.chase);
     this.updateMiniGames(dt, prevDistance, (speedCfg.max + speedCfg.boost) / 2);
+    const canLearn =
+      !this.isFreeSwim && !this.hideSeek.active && this.playerDistance > 60 && this.playerDistance < 2150;
+    for (const ev of this.learning.update(dt, this.playerDistance, this.playerLateral, canLearn, getPlayerName())) {
+      this.handleLearning(ev);
+    }
 
     this.itemManager.updateAndCheckCollisions(
       dt,
@@ -1558,7 +1605,90 @@ export class GameEngine {
     }
   }
 
+  /**
+   * Photo mode: a "selfie" of Whiskers (and his buddy) from the front, or the room view inside
+   * the fish house. The on-screen buttons are not part of the 3D view, so they never show up.
+   */
+  public takePhoto(): string | null {
+    const cam = this.camera;
+    const savedPos = cam.position.clone();
+    const savedQuat = cam.quaternion.clone();
+    let unpose: (() => void) | null = null;
+    try {
+      if (!this.houseView) {
+        const p = this.player.group.position;
+        const h = this.player.group.rotation.y;
+        cam.position.set(p.x + Math.sin(h) * 3.1 + Math.cos(h) * 0.9, p.y + 0.75, p.z + Math.cos(h) * 3.1 - Math.sin(h) * 0.9);
+        cam.lookAt(p.x - Math.cos(h) * 0.35, p.y + 0.25, p.z + Math.sin(h) * 0.35);
+        if (this.buddy.group.visible) unpose = this.buddy.poseForPhoto(this.player.group, cam.position);
+      }
+      this.renderer.render(this.scene, cam);
+      return this.renderer.domElement.toDataURL('image/jpeg', 0.92);
+    } catch (err) {
+      console.warn('Could not take a photo:', err);
+      return null;
+    } finally {
+      unpose?.();
+      cam.position.copy(savedPos);
+      cam.quaternion.copy(savedQuat);
+      sound.playShutter();
+      this.buddy.celebrate();
+    }
+  }
+
+  /** Learning moments on/off (grown-ups). */
+  public setLearningEnabled(on: boolean) {
+    this.learning.setEnabled(on);
+    if (!on) this.callbacks.onLearningPrompt(null);
+  }
+
+  public get learningEnabled() {
+    return this.learning.enabled;
+  }
+
+  /** The child tapped an answer on a learning question. */
+  public answerLearning(option: string) {
+    const ev = this.learning.answer(option);
+    if (ev) this.handleLearning(ev);
+  }
+
+  private handleLearning(ev: LearningEvent) {
+    if (ev.type === 'prompt') {
+      this.callbacks.onLearningPrompt(ev.prompt);
+      sound.playBarbelSense();
+      narrator.say(ev.say, true);
+    } else if (ev.type === 'result') {
+      if (ev.correct) {
+        this.rewardStars(2, 10);
+        sound.playMissionComplete();
+        this.sparkles.burst(ev.at, CONFETTI, 30, 3.5, 1.4);
+        this.callbacks.onTreasurePopup(ev.text, 2, '🎉');
+      } else {
+        this.callbacks.onTreasurePopup(ev.text, 0, '💛');
+      }
+      narrator.say(ev.say, true);
+      this.callbacks.onLearningPrompt(null);
+    } else {
+      this.callbacks.onLearningPrompt(null);
+    }
+  }
+
+  /** Grown-ups season choice ('auto' follows the calendar). */
+  public setSeasonSetting(setting: SeasonSetting, save = true) {
+    this.seasonSetting = setting;
+    if (save) saveSeasonSetting(setting);
+    this.seasonFx.setSeason(resolveSeason(setting), isHolidayTime());
+  }
+
+  /** Whiskers' baby fish buddy (null hides it). */
+  public setBuddy(look: BuddyLook | null) {
+    this.buddy.group.visible = !!look;
+    this.buddyName = look?.name || '';
+    if (look) this.buddy.setColor(look.color);
+  }
+
   private rewardStars(stars: number, points: number) {
+    if (stars > 0) this.buddy.celebrate();
     this.counts.stars += stars;
     this.counts.totalPoints += points;
     this.saveLocalProgress();
@@ -1898,6 +2028,9 @@ export class GameEngine {
     this.sparkles.dispose();
     this.rainbow.dispose();
     this.badGuys.dispose();
+    this.buddy.dispose();
+    this.learning.dispose();
+    this.seasonFx.dispose();
     this.house.dispose();
     this.geysers.dispose();
     this.dive.dispose();

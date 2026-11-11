@@ -336,11 +336,16 @@ export class Forest {
   public group = new THREE.Group();
   private timeUniform = { value: 0 };
   private materials: THREE.Material[] = [];
+  /** Trunks, rocks and flowers / leaves (for the seasonal look). */
+  public solidMaterial!: THREE.Material;
+  public leafMaterial!: THREE.Material;
 
   constructor(scene: THREE.Scene) {
     scene.add(this.group);
     const solidMat = this.makeMaterial(THREE.FrontSide);
     const leafMat = this.makeMaterial(THREE.DoubleSide);
+    this.solidMaterial = solidMat;
+    this.leafMaterial = leafMat;
 
     const chunks = new Map<number, PartList>();
     const partsAt = (dist: number) => {

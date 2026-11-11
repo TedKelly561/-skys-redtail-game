@@ -5,6 +5,7 @@
 2. **UID Immutability**: `data.uid` must equal `request.auth.uid` on creation and must remain immutable (`incoming().uid == existing().uid`) on update.
 3. **Strict Schema & Volumetric Bounds**: Only the exact 13 defined fields in `UserProgress` are permitted (`hasAll` and `hasOnly`). `displayName` must be a string with `1 <= size() <= 100`. All counters must be non-negative numbers (`>= 0` and `<= 10000000`). `highestChapter` must be between `1` and `5`.
 4. **Temporal Integrity**: `updatedAt` must strictly equal `request.time`.
+5. **Extras Isolation**: `/userExtras/{userId}` (friends, outfits, fish house, buddy) follows the same owner-only rules: exactly its 13 fields, `uid == request.auth.uid` and immutable, lists capped (friends ≤ 20, closet ≤ 60, house ≤ 20), strings capped, spent counters within bounds, `lakeUnlocked` a boolean, `updatedAt == request.time`. It is a separate document so the main progress save never depends on it.
 
 ## 2. The "Dirty Dozen" Payloads
 1. **Unauthenticated Write**: `auth = null` attempting to create `/users/user_1`.

@@ -18,6 +18,13 @@ import { StickerBook } from './components/StickerBook';
 import { DressUpShop } from './components/DressUpShop';
 import { FishHouseRoom } from './components/FishHouseRoom';
 import { HouseItem, HouseState, HouseView, loadHouse, saveHouse } from './game/house';
+import { BuddyLook, loadBuddy, saveBuddy } from './game/buddy';
+import { Photo, framePhoto, loadAlbum, saveAlbum } from './game/photos';
+import { SeasonSetting, loadSeasonSetting } from './game/seasons';
+import { LearningPrompt, loadLearningEnabled } from './game/learning';
+import { LearningCard } from './components/LearningCard';
+import { CloudExtras, applyExtrasLocally, collectLocalExtras, mergeExtras, sanitizeExtras } from './game/cloudExtras';
+import { PhotoAlbum, PhotoView } from './components/Photos';
 import { ClosetItem, ClosetSlot, ClosetState, loadCloset, saveCloset } from './game/closet';
 import { sound } from './game/audio';
 import { narrator } from './game/voice';
@@ -30,6 +37,8 @@ import {
   logout,
   loadUserProgress,
   saveUserProgress,
+  loadUserExtras,
+  saveUserExtras,
 } from './services/firebaseAuthAndPoints';
 
 export default function App() {
@@ -68,6 +77,9 @@ export default function App() {
   const [readAloud, setReadAloud] = useState<boolean>(() => narrator.getEnabled());
   const [musicOn, setMusicOn] = useState<boolean>(() => music.getEnabled());
   const [difficulty, setDifficulty] = useState<Difficulty>(() => GameEngine.loadDifficulty());
+  const [season, setSeason] = useState<SeasonSetting>(() => loadSeasonSetting());
+  const [learningOn, setLearningOn] = useState<boolean>(() => loadLearningEnabled());
+  const [learningPrompt, setLearningPrompt] = useState<LearningPrompt | null>(null);
   const [metFriends, setMetFriends] = useState<FriendKind[]>([]);
   const [friendNearby, setFriendNearby] = useState<boolean>(false);
   const [isFriendsOpen, setIsFriendsOpen] = useState<boolean>(false);
@@ -76,6 +88,20 @@ export default function App() {
   const [tryingOn, setTryingOn] = useState<ClosetItem | null>(null);
   const [isShopOpen, setIsShopOpen] = useState<boolean>(false);
   const [savedPlace] = useState<number | null>(() => GameEngine.loadSavedPlace());
+  // Baby fish buddy (asked for once, after the player's name).
+  const [buddy, setBuddy] = useState<BuddyLook | null>(() => loadBuddy());
+  const [buddyLater, setBuddyLater] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('whiskers_buddy_later') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  // Photo mode: the photo just taken (shown big) and the little album.
+  const [photos, setPhotos] = useState<Photo[]>(() => loadAlbum());
+  const [photoShot, setPhotoShot] = useState<string | null>(null);
+  const [albumOpen, setAlbumOpen] = useState<boolean>(false);
+  const [flash, setFlash] = useState<boolean>(false);
   const [lakeUnlocked, setLakeUnlocked] = useState<boolean>(() => GameEngine.isLakeUnlocked());
   useEffect(() => {
     if (gameState === 'victory') setLakeUnlocked(true);
@@ -133,6 +159,28 @@ export default function App() {
     }, 1600);
   }, []);
 
+  // Friends, outfits, fish house, lake shortcut and buddy follow the player too (signed in).
+  const lastExtrasRef = useRef<string>('');
+  const applyMergedExtras = (merged: CloudExtras) => {
+    const r = applyExtrasLocally(merged);
+    setCloset(r.closet);
+    setHouse(r.house);
+    engineRef.current?.setHouseDecor(r.house.owned);
+    if (r.buddy) {
+      setBuddy(r.buddy);
+      engineRef.current?.setBuddy(r.buddy);
+    }
+    if (r.lakeUnlocked) setLakeUnlocked(true);
+    engineRef.current?.addFriends(r.friends);
+  };
+  const syncExtrasOnLogin = async (uid: string) => {
+    const raw = await loadUserExtras(uid);
+    const local = collectLocalExtras();
+    const merged = raw ? mergeExtras(local, sanitizeExtras(raw)) : local;
+    if (raw) applyMergedExtras(merged);
+    if (await saveUserExtras(uid, merged)) lastExtrasRef.current = JSON.stringify(merged);
+  };
+
   // Initialize Firebase Auth & load cloud points
   useEffect(() => {
     const unsubscribe = initAuth(
@@ -162,6 +210,7 @@ export default function App() {
             });
             setIsCloudSynced(true);
           }
+          await syncExtrasOnLogin(authUser.uid);
         } catch (err) {
           console.error('Error syncing cloud progress:', err);
         }
@@ -173,6 +222,19 @@ export default function App() {
     );
     return () => unsubscribe();
   }, []);
+
+  // Debounced cloud save of the extras whenever any of them change.
+  const extrasTimerRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!user) return;
+    if (extrasTimerRef.current) window.clearTimeout(extrasTimerRef.current);
+    extrasTimerRef.current = window.setTimeout(async () => {
+      const now = collectLocalExtras();
+      const key = JSON.stringify(now);
+      if (key === lastExtrasRef.current) return;
+      if (await saveUserExtras(user.uid, now)) lastExtrasRef.current = key;
+    }, 2500);
+  }, [user, closet, house, buddy, metFriends, lakeUnlocked]);
 
   // Debounced cloud sync whenever counts update
   useEffect(() => {
@@ -220,6 +282,7 @@ export default function App() {
       onFriendsChange: (met) => setMetFriends(met),
       onNearbyFriendChange: (kind) => setFriendNearby(kind !== null),
       onMiniGameChange: (info) => setMiniGame(info),
+      onLearningPrompt: (prompt) => setLearningPrompt(prompt),
       onHouseChange: (open) => {
         setInHouse(open);
         setHouseViewState('room');
@@ -234,6 +297,7 @@ export default function App() {
 
     engineRef.current = engine;
     engine.setHouseDecor(loadHouse().owned);
+    engine.setBuddy(loadBuddy());
     if (import.meta.env.DEV) {
       (window as unknown as { __whiskers?: GameEngine }).__whiskers = engine;
     }
@@ -415,6 +479,31 @@ export default function App() {
     narrator.say(next ? 'Night time! Look for the fireflies!' : 'Good morning, Whiskers!', true);
   };
 
+  const takePhoto = async () => {
+    const engine = engineRef.current;
+    if (!engine || photoShot) return;
+    const shot = engine.takePhoto();
+    if (!shot) return;
+    setFlash(true);
+    window.setTimeout(() => setFlash(false), 250);
+    engine.pauseGame();
+    const names = [playerName, 'Whiskers', buddy?.name].filter((n): n is string => !!n);
+    const caption = names.length > 1 ? `${names.slice(0, -1).join(', ')} & ${names[names.length - 1]}` : names[0];
+    try {
+      const framed = await framePhoto(shot, caption);
+      setPhotos((prev) => saveAlbum([{ url: framed, at: Date.now() }, ...prev]));
+      setPhotoShot(framed);
+      narrator.say('What a great picture!', true);
+    } catch {
+      engine.resumeGame();
+    }
+  };
+
+  const closePhoto = () => {
+    setPhotoShot(null);
+    engineRef.current?.resumeGame();
+  };
+
   const changeHouseView = (view: HouseView) => {
     setHouseViewState(view);
     engineRef.current?.setHouseView(view);
@@ -583,6 +672,26 @@ export default function App() {
           onContinue={() => engineRef.current?.continueGame()}
           lakeUnlocked={lakeUnlocked}
           onGoToLake={() => engineRef.current?.startLakeSwim()}
+          photoCount={photos.length}
+          onOpenPhotos={() => setAlbumOpen(true)}
+          buddy={buddy}
+          askForBuddy={!buddy && !buddyLater && !askForName}
+          onPreviewBuddy={(look) => engineRef.current?.setBuddy(look)}
+          onSetBuddy={(look) => {
+            if (look) {
+              setBuddy(look);
+              saveBuddy(look);
+              narrator.say(`Hi, ${look.name}! Let's swim together!`, true);
+            } else {
+              setBuddyLater(true);
+              try {
+                localStorage.setItem('whiskers_buddy_later', 'true'); // the title's Buddy button still works
+              } catch {
+                // ignore
+              }
+            }
+            engineRef.current?.setBuddy(look || buddy);
+          }}
           dailyMissions={dailyMissions}
           onOpenDailyMissions={openDailyMissions}
           playerName={playerName}
@@ -606,6 +715,7 @@ export default function App() {
           treasurePopup={treasurePopup}
           sniffReady={sniffReady}
           onPause={handlePause}
+          onTakePhoto={() => void takePhoto()}
           onTriggerSonar={handleTriggerSonar}
           onSetBoost={handleSetBoost}
           onVirtualSteer={handleVirtualSteer}
@@ -620,8 +730,13 @@ export default function App() {
         />
       )}
 
+      {/* Learning moment question */}
+      {gameState === 'playing' && !inHouse && learningPrompt && (
+        <LearningCard prompt={learningPrompt} onAnswer={(opt) => engineRef.current?.answerLearning(opt)} />
+      )}
+
       {/* Inside Whiskers' fish house */}
-      {gameState === 'playing' && inHouse && (
+      {(gameState === 'playing' || (gameState === 'paused' && !!photoShot)) && inHouse && (
         <FishHouseRoom
           wallet={wallet}
           house={house}
@@ -633,11 +748,23 @@ export default function App() {
           onBedtime={goToBed}
           onExit={() => engineRef.current?.exitHouse()}
           onSay={(text) => narrator.say(text, true)}
+          onTakePhoto={() => void takePhoto()}
+        />
+      )}
+
+      {/* Photo mode */}
+      {flash && <div className="absolute inset-0 z-[70] bg-white pointer-events-none animate-pop" />}
+      {photoShot && <PhotoView url={photoShot} title="📷 Snap!" onClose={closePhoto} />}
+      {albumOpen && (
+        <PhotoAlbum
+          photos={photos}
+          onClose={() => setAlbumOpen(false)}
+          onDelete={(at) => setPhotos((prev) => saveAlbum(prev.filter((p) => p.at !== at)))}
         />
       )}
 
       {/* Pause Menu Modal */}
-      {gameState === 'paused' && !isShopOpen && (
+      {gameState === 'paused' && !isShopOpen && !photoShot && (
         <PauseMenu
           onResume={handleResume}
           onRestart={handleRestart}
@@ -693,6 +820,16 @@ export default function App() {
         onSetMusic={handleSetMusic}
         difficulty={difficulty}
         onSetDifficulty={handleSetDifficulty}
+        learningOn={learningOn}
+        onSetLearning={(on) => {
+          setLearningOn(on);
+          engineRef.current?.setLearningEnabled(on);
+        }}
+        season={season}
+        onSetSeason={(v) => {
+          setSeason(v);
+          engineRef.current?.setSeasonSetting(v);
+        }}
       />
 
       {/* Dress-up shop */}

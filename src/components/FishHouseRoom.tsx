@@ -14,6 +14,7 @@ interface FishHouseRoomProps {
   onExit: () => void;
   /** Read a short message aloud (for players who can't read yet). */
   onSay: (text: string) => void;
+  onTakePhoto: () => void;
 }
 
 const btn =
@@ -30,6 +31,7 @@ export const FishHouseRoom: React.FC<FishHouseRoomProps> = ({
   onBedtime,
   onExit,
   onSay,
+  onTakePhoto,
 }) => {
   const [decorating, setDecorating] = useState(false);
 
@@ -53,8 +55,17 @@ export const FishHouseRoom: React.FC<FishHouseRoomProps> = ({
         <div className="px-3 py-1.5 rounded-full bg-slate-900/75 text-white font-black text-sm sm:text-base shadow">
           🏠 Whiskers&apos; House
         </div>
-        <div className="px-3 py-1.5 rounded-full bg-slate-900/75 text-amber-200 font-black text-sm sm:text-base shadow tabular-nums">
-          ⭐ {wallet}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onTakePhoto}
+            aria-label="Take a photo"
+            className="pointer-events-auto w-10 h-10 rounded-full bg-slate-900/75 text-xl flex items-center justify-center shadow active:scale-90 transition cursor-pointer"
+          >
+            📷
+          </button>
+          <div className="px-3 py-1.5 rounded-full bg-slate-900/75 text-amber-200 font-black text-sm sm:text-base shadow tabular-nums">
+            ⭐ {wallet}
+          </div>
         </div>
       </div>
 
