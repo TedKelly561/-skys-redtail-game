@@ -90,7 +90,13 @@ export default function App() {
   const [savedPlace] = useState<number | null>(() => GameEngine.loadSavedPlace());
   // Baby fish buddy (asked for once, after the player's name).
   const [buddy, setBuddy] = useState<BuddyLook | null>(() => loadBuddy());
-  const [buddyLater, setBuddyLater] = useState<boolean>(false);
+  const [buddyLater, setBuddyLater] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('whiskers_buddy_later') === 'true';
+    } catch {
+      return false;
+    }
+  });
   // Photo mode: the photo just taken (shown big) and the little album.
   const [photos, setPhotos] = useState<Photo[]>(() => loadAlbum());
   const [photoShot, setPhotoShot] = useState<string | null>(null);
@@ -678,6 +684,11 @@ export default function App() {
               narrator.say(`Hi, ${look.name}! Let's swim together!`, true);
             } else {
               setBuddyLater(true);
+              try {
+                localStorage.setItem('whiskers_buddy_later', 'true'); // the title's Buddy button still works
+              } catch {
+                // ignore
+              }
             }
             engineRef.current?.setBuddy(look || buddy);
           }}
