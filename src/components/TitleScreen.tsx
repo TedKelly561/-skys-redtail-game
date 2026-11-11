@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { Play, Volume2, VolumeX, Map as MapIcon, Settings, Pencil } from 'lucide-react';
+import { Play, Volume2, VolumeX, Map as MapIcon, Settings, Pencil, Plus } from 'lucide-react';
 import { CHAPTERS, RiverChapterInfo } from '../game/worldGen';
 import { TreasureCounts } from '../game/engine';
 import { DailyMissionsState } from '../game/dailyMissions';
 import { useIsTouchDevice } from './GameHUD';
 import { MAX_NAME_LENGTH } from '../game/profile';
 import { BUDDY_COLORS, BUDDY_NAMES, BuddyLook, MAX_BUDDY_NAME, cleanBuddyName } from '../game/buddy';
+import { MAX_PROFILES, ProfilesState } from '../game/profiles';
 
 interface TitleScreenProps {
   onStartGame: (chapterIdx: number) => void;
@@ -29,6 +30,9 @@ interface TitleScreenProps {
   onSetBuddy: (look: BuddyLook | null) => void;
   photoCount: number;
   onOpenPhotos: () => void;
+  profiles: ProfilesState;
+  onSwitchProfile: (id: string) => void;
+  onAddProfile: () => void;
   dailyMissions: DailyMissionsState;
   onOpenDailyMissions: () => void;
   playerName: string;
@@ -165,6 +169,57 @@ const BuddyCard: React.FC<{
   );
 };
 
+/** "Who's playing?": one chip per child on this device, plus adding a new player. */
+const PlayerRow: React.FC<{
+  profiles: ProfilesState;
+  onSwitch: (id: string) => void;
+  onAdd: () => void;
+}> = ({ profiles, onSwitch, onAdd }) => {
+  const [confirmAdd, setConfirmAdd] = useState(false);
+  const chip = 'pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-black shadow transition active:scale-95 cursor-pointer';
+  return (
+    <div className="mb-3 flex flex-wrap items-center justify-center gap-1.5" aria-label="Who's playing?">
+      {profiles.list.length > 1 &&
+        profiles.list.map((p) => {
+          const active = p.id === profiles.active;
+          return (
+            <button
+              key={p.id}
+              onClick={() => !active && onSwitch(p.id)}
+              aria-pressed={active}
+              aria-label={active ? `${p.name || 'New player'} is playing` : `Switch to ${p.name || 'new player'}`}
+              className={`${chip} ${active ? 'bg-white text-slate-900 ring-4 ring-white/40' : 'bg-slate-950/75 text-white border border-white/20'}`}
+            >
+              <span className="w-3.5 h-3.5 rounded-full" style={{ background: p.color }} />
+              {p.name || 'New player'}
+            </button>
+          );
+        })}
+      {profiles.list.length < MAX_PROFILES &&
+        (confirmAdd ? (
+          <span className="pointer-events-auto flex items-center gap-1 px-2 py-1 rounded-full bg-slate-950/85 border border-white/20 text-white text-sm font-bold">
+            New player?
+            <button onClick={onAdd} className="px-2 py-0.5 rounded-full bg-emerald-500 font-black cursor-pointer" aria-label="Yes, add a player">
+              ✓
+            </button>
+            <button onClick={() => setConfirmAdd(false)} className="px-2 py-0.5 rounded-full bg-slate-700 font-black cursor-pointer" aria-label="Cancel">
+              ✕
+            </button>
+          </span>
+        ) : (
+          <button
+            onClick={() => setConfirmAdd(true)}
+            aria-label="Add a player"
+            className={`${chip} bg-slate-950/75 text-white border border-white/30`}
+          >
+            <Plus className="w-4 h-4" strokeWidth={3} />
+            {profiles.list.length > 1 ? '' : 'Add player'}
+          </button>
+        ))}
+    </div>
+  );
+};
+
 /** Five big picture cards so a child can jump to their favorite part of the river. */
 export const PlacePicker: React.FC<{
   onPick: (idx: number) => void;
@@ -209,6 +264,9 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   onSetBuddy,
   photoCount,
   onOpenPhotos,
+  profiles,
+  onSwitchProfile,
+  onAddProfile,
   dailyMissions,
   onOpenDailyMissions,
   playerName,
@@ -356,17 +414,19 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
             {playerName ? (
               <button
                 onClick={() => setEditingName(true)}
-                className="pointer-events-auto mt-1 mb-4 flex items-center gap-2 text-white text-2xl font-black drop-shadow-[0_2px_3px_rgba(0,0,0,0.8)] cursor-pointer"
+                className="pointer-events-auto mt-1 mb-2 flex items-center gap-2 text-white text-2xl font-black drop-shadow-[0_2px_3px_rgba(0,0,0,0.8)] cursor-pointer"
                 aria-label={`Hi, ${playerName}! Tap to change your name`}
               >
                 <span>Hi, {playerName}! 👋</span>
                 <Pencil className="w-4 h-4 text-white/70" />
               </button>
             ) : (
-              <p className="mt-1 mb-5 text-white text-base sm:text-lg font-bold drop-shadow-[0_2px_3px_rgba(0,0,0,0.8)]">
+              <p className="mt-1 mb-2 text-white text-base sm:text-lg font-bold drop-shadow-[0_2px_3px_rgba(0,0,0,0.8)]">
                 Help Whiskers swim home to the Grand Lake! 🏝️
               </p>
             )}
+
+            <PlayerRow profiles={profiles} onSwitch={onSwitchProfile} onAdd={onAddProfile} />
 
             {continueChapter ? (
               <>

@@ -24,6 +24,7 @@ import { SeasonSetting, loadSeasonSetting } from './game/seasons';
 import { LearningPrompt, loadLearningEnabled } from './game/learning';
 import { LearningCard } from './components/LearningCard';
 import { CloudExtras, applyExtrasLocally, collectLocalExtras, mergeExtras, sanitizeExtras } from './game/cloudExtras';
+import { ProfilesState, addProfile, isPrimaryProfile, loadProfiles, removeProfile, switchProfile, syncActiveProfileName } from './game/profiles';
 import { PhotoAlbum, PhotoView } from './components/Photos';
 import { ClosetItem, ClosetSlot, ClosetState, loadCloset, saveCloset } from './game/closet';
 import { sound } from './game/audio';
@@ -88,6 +89,10 @@ export default function App() {
   const [tryingOn, setTryingOn] = useState<ClosetItem | null>(null);
   const [isShopOpen, setIsShopOpen] = useState<boolean>(false);
   const [savedPlace] = useState<number | null>(() => GameEngine.loadSavedPlace());
+  // Player profiles (each child on this device has their own progress).
+  const [profiles, setProfiles] = useState<ProfilesState>(() => syncActiveProfileName());
+  const primaryProfile = profiles.active === profiles.list[0].id;
+
   // Baby fish buddy (asked for once, after the player's name).
   const [buddy, setBuddy] = useState<BuddyLook | null>(() => loadBuddy());
   const [buddyLater, setBuddyLater] = useState<boolean>(() => {
@@ -186,6 +191,8 @@ export default function App() {
     const unsubscribe = initAuth(
       async (authUser) => {
         setUser(authUser);
+        // Cloud save belongs to the first player on this device; other players stay local.
+        if (!isPrimaryProfile()) return;
         try {
           const cloudData = await loadUserProgress(authUser.uid);
           if (cloudData && engineRef.current) {
@@ -226,7 +233,7 @@ export default function App() {
   // Debounced cloud save of the extras whenever any of them change.
   const extrasTimerRef = useRef<number | null>(null);
   useEffect(() => {
-    if (!user) return;
+    if (!user || !primaryProfile) return;
     if (extrasTimerRef.current) window.clearTimeout(extrasTimerRef.current);
     extrasTimerRef.current = window.setTimeout(async () => {
       const now = collectLocalExtras();
@@ -234,11 +241,11 @@ export default function App() {
       if (key === lastExtrasRef.current) return;
       if (await saveUserExtras(user.uid, now)) lastExtrasRef.current = key;
     }, 2500);
-  }, [user, closet, house, buddy, metFriends, lakeUnlocked]);
+  }, [user, primaryProfile, closet, house, buddy, metFriends, lakeUnlocked]);
 
   // Debounced cloud sync whenever counts update
   useEffect(() => {
-    if (!user || !engineRef.current) return;
+    if (!user || !engineRef.current || !primaryProfile) return;
     if (saveDebounceRef.current) {
       window.clearTimeout(saveDebounceRef.current);
     }
@@ -265,7 +272,7 @@ export default function App() {
         console.error('Auto-save error:', e);
       }
     }, 2200);
-  }, [counts, user]);
+  }, [counts, user, primaryProfile]);
 
   // Initialize GameEngine inside useEffect once
   useEffect(() => {
@@ -435,6 +442,7 @@ export default function App() {
   const handleSetName = (name: string) => {
     setPlayerName(storePlayerName(name));
     setAskForName(false);
+    setProfiles(syncActiveProfileName());
   };
 
   const handleSetMusic = (on: boolean) => {
@@ -672,6 +680,9 @@ export default function App() {
           onContinue={() => engineRef.current?.continueGame()}
           lakeUnlocked={lakeUnlocked}
           onGoToLake={() => engineRef.current?.startLakeSwim()}
+          profiles={profiles}
+          onSwitchProfile={(id) => switchProfile(id)}
+          onAddProfile={() => addProfile()}
           photoCount={photos.length}
           onOpenPhotos={() => setAlbumOpen(true)}
           buddy={buddy}
@@ -820,6 +831,8 @@ export default function App() {
         onSetMusic={handleSetMusic}
         difficulty={difficulty}
         onSetDifficulty={handleSetDifficulty}
+        profiles={profiles}
+        onRemoveProfile={(id) => setProfiles(removeProfile(id))}
         learningOn={learningOn}
         onSetLearning={(on) => {
           setLearningOn(on);
