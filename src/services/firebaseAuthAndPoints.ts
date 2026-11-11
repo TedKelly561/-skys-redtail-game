@@ -186,3 +186,66 @@ export async function saveUserProgress(progress: PlayerProgressData): Promise<vo
     handleFirestoreError(error, OperationType.WRITE, path);
   }
 }
+
+/**
+ * Extras (friends, outfits, fish house, lake shortcut, buddy) live in their own document,
+ * userExtras/{uid}, so the main progress save above can never be affected by them. Both
+ * functions are quiet on failure (e.g. before the Firestore rules for it are published) and
+ * simply report null / false.
+ */
+let extrasWarned = false;
+const warnExtras = (err: unknown) => {
+  if (extrasWarned) return;
+  extrasWarned = true;
+  console.warn('Cloud extras not available yet (check the userExtras Firestore rules):', err);
+};
+
+export async function loadUserExtras(uid: string): Promise<Record<string, unknown> | null> {
+  try {
+    const snap = await getDoc(doc(db, 'userExtras', uid));
+    return snap.exists() ? (snap.data() as Record<string, unknown>) : null;
+  } catch (err) {
+    warnExtras(err);
+    return null;
+  }
+}
+
+export async function saveUserExtras(
+  uid: string,
+  extras: {
+    friends: string[];
+    closetOwned: string[];
+    closetSpent: number;
+    outfitHat: string;
+    outfitGlasses: string;
+    outfitColor: string;
+    houseOwned: string[];
+    houseSpent: number;
+    lakeUnlocked: boolean;
+    buddyName: string;
+    buddyColor: string;
+  }
+): Promise<boolean> {
+  if (!auth.currentUser || auth.currentUser.uid !== uid) return false;
+  try {
+    await setDoc(doc(db, 'userExtras', uid), {
+      uid,
+      friends: extras.friends.slice(0, 20),
+      closetOwned: extras.closetOwned.slice(0, 60),
+      closetSpent: clampCounter(extras.closetSpent),
+      outfitHat: extras.outfitHat.slice(0, 40),
+      outfitGlasses: extras.outfitGlasses.slice(0, 40),
+      outfitColor: extras.outfitColor.slice(0, 40),
+      houseOwned: extras.houseOwned.slice(0, 20),
+      houseSpent: clampCounter(extras.houseSpent),
+      lakeUnlocked: !!extras.lakeUnlocked,
+      buddyName: extras.buddyName.slice(0, 20),
+      buddyColor: extras.buddyColor.slice(0, 9),
+      updatedAt: serverTimestamp(),
+    });
+    return true;
+  } catch (err) {
+    warnExtras(err);
+    return false;
+  }
+}

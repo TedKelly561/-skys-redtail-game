@@ -23,6 +23,7 @@ import { Photo, framePhoto, loadAlbum, saveAlbum } from './game/photos';
 import { SeasonSetting, loadSeasonSetting } from './game/seasons';
 import { LearningPrompt, loadLearningEnabled } from './game/learning';
 import { LearningCard } from './components/LearningCard';
+import { CloudExtras, applyExtrasLocally, collectLocalExtras, mergeExtras, sanitizeExtras } from './game/cloudExtras';
 import { PhotoAlbum, PhotoView } from './components/Photos';
 import { ClosetItem, ClosetSlot, ClosetState, loadCloset, saveCloset } from './game/closet';
 import { sound } from './game/audio';
@@ -36,6 +37,8 @@ import {
   logout,
   loadUserProgress,
   saveUserProgress,
+  loadUserExtras,
+  saveUserExtras,
 } from './services/firebaseAuthAndPoints';
 
 export default function App() {
@@ -150,6 +153,28 @@ export default function App() {
     }, 1600);
   }, []);
 
+  // Friends, outfits, fish house, lake shortcut and buddy follow the player too (signed in).
+  const lastExtrasRef = useRef<string>('');
+  const applyMergedExtras = (merged: CloudExtras) => {
+    const r = applyExtrasLocally(merged);
+    setCloset(r.closet);
+    setHouse(r.house);
+    engineRef.current?.setHouseDecor(r.house.owned);
+    if (r.buddy) {
+      setBuddy(r.buddy);
+      engineRef.current?.setBuddy(r.buddy);
+    }
+    if (r.lakeUnlocked) setLakeUnlocked(true);
+    engineRef.current?.addFriends(r.friends);
+  };
+  const syncExtrasOnLogin = async (uid: string) => {
+    const raw = await loadUserExtras(uid);
+    const local = collectLocalExtras();
+    const merged = raw ? mergeExtras(local, sanitizeExtras(raw)) : local;
+    if (raw) applyMergedExtras(merged);
+    if (await saveUserExtras(uid, merged)) lastExtrasRef.current = JSON.stringify(merged);
+  };
+
   // Initialize Firebase Auth & load cloud points
   useEffect(() => {
     const unsubscribe = initAuth(
@@ -179,6 +204,7 @@ export default function App() {
             });
             setIsCloudSynced(true);
           }
+          await syncExtrasOnLogin(authUser.uid);
         } catch (err) {
           console.error('Error syncing cloud progress:', err);
         }
@@ -190,6 +216,19 @@ export default function App() {
     );
     return () => unsubscribe();
   }, []);
+
+  // Debounced cloud save of the extras whenever any of them change.
+  const extrasTimerRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!user) return;
+    if (extrasTimerRef.current) window.clearTimeout(extrasTimerRef.current);
+    extrasTimerRef.current = window.setTimeout(async () => {
+      const now = collectLocalExtras();
+      const key = JSON.stringify(now);
+      if (key === lastExtrasRef.current) return;
+      if (await saveUserExtras(user.uid, now)) lastExtrasRef.current = key;
+    }, 2500);
+  }, [user, closet, house, buddy, metFriends, lakeUnlocked]);
 
   // Debounced cloud sync whenever counts update
   useEffect(() => {

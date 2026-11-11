@@ -77,6 +77,99 @@
         "riverPearls",
         "updatedAt"
       ]
+    },
+    "UserExtras": {
+      "title": "UserExtras",
+      "description": "Things that follow the player between devices besides points: friends met, outfits, fish house decorations, the Grand Lake shortcut and the baby fish buddy.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "The authenticated user's UID.",
+          "maxLength": 128
+        },
+        "friends": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "description": "Sticker book friends met."
+        },
+        "closetOwned": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 60,
+          "description": "Dress-up items owned."
+        },
+        "closetSpent": {
+          "type": "number",
+          "description": "Stars spent in the dress-up shop."
+        },
+        "outfitHat": {
+          "type": "string",
+          "maxLength": 40,
+          "description": "Hat being worn ('' for none)."
+        },
+        "outfitGlasses": {
+          "type": "string",
+          "maxLength": 40,
+          "description": "Glasses being worn ('' for none)."
+        },
+        "outfitColor": {
+          "type": "string",
+          "maxLength": 40,
+          "description": "Fin color being worn ('' for none)."
+        },
+        "houseOwned": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "description": "Fish house decorations owned."
+        },
+        "houseSpent": {
+          "type": "number",
+          "description": "Stars spent on fish house decorations."
+        },
+        "lakeUnlocked": {
+          "type": "boolean",
+          "description": "Has reached the Grand Lake (enables the title shortcut)."
+        },
+        "buddyName": {
+          "type": "string",
+          "maxLength": 20,
+          "description": "Baby fish buddy's name ('' if none)."
+        },
+        "buddyColor": {
+          "type": "string",
+          "maxLength": 9,
+          "description": "Baby fish buddy's color ('' if none)."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of the last save."
+        }
+      },
+      "required": [
+        "uid",
+        "friends",
+        "closetOwned",
+        "closetSpent",
+        "outfitHat",
+        "outfitGlasses",
+        "outfitColor",
+        "houseOwned",
+        "houseSpent",
+        "lakeUnlocked",
+        "buddyName",
+        "buddyColor",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -85,6 +178,12 @@
         "$ref": "#/entities/UserProgress"
       },
       "description": "Stores private point tracking and treasure inventory for each authenticated player."
+    },
+    "/userExtras/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserExtras"
+      },
+      "description": "Private extras (friends, outfits, fish house, buddy) for each authenticated player."
     }
   }
 }

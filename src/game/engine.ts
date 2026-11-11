@@ -800,6 +800,20 @@ export class GameEngine {
     narrator.say(`Hi, ${name}! You made a new friend!`, true);
   }
 
+  /** Friends met on another device (from the cloud save). */
+  public addFriends(kinds: FriendKind[]) {
+    let changed = false;
+    for (const k of kinds) {
+      if (!this.metFriends.has(k)) {
+        this.metFriends.add(k);
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    saveMetFriends(this.metFriends);
+    this.callbacks.onFriendsChange([...this.metFriends]);
+  }
+
   private tryMeetNearbyFriend() {
     const kind = findNearbyNewFriend(
       this.riverWorld.friendSpots,

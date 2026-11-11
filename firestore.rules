@@ -85,6 +85,51 @@ service cloud.firestore {
       data.updatedAt == request.time;
     }
 
+    // Pillar 3: Validation Blueprint for UserExtras (friends, outfits, fish house, buddy)
+    function isShortString(val, max) {
+      return val is string && val.size() <= max;
+    }
+
+    function isShortList(val, max) {
+      return val is list && val.size() <= max;
+    }
+
+    function isValidUserExtras(data) {
+      return data.keys().hasAll([
+        'uid', 'friends', 'closetOwned', 'closetSpent', 'outfitHat', 'outfitGlasses', 'outfitColor',
+        'houseOwned', 'houseSpent', 'lakeUnlocked', 'buddyName', 'buddyColor', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'uid', 'friends', 'closetOwned', 'closetSpent', 'outfitHat', 'outfitGlasses', 'outfitColor',
+        'houseOwned', 'houseSpent', 'lakeUnlocked', 'buddyName', 'buddyColor', 'updatedAt'
+      ]) &&
+      data.uid is string &&
+      data.uid == request.auth.uid &&
+      isShortList(data.friends, 20) &&
+      isShortList(data.closetOwned, 60) &&
+      isValidCounter(data.closetSpent) &&
+      isShortString(data.outfitHat, 40) &&
+      isShortString(data.outfitGlasses, 40) &&
+      isShortString(data.outfitColor, 40) &&
+      isShortList(data.houseOwned, 20) &&
+      isValidCounter(data.houseSpent) &&
+      data.lakeUnlocked is bool &&
+      isShortString(data.buddyName, 20) &&
+      isShortString(data.buddyColor, 9) &&
+      data.updatedAt == request.time;
+    }
+
+    // /userExtras/{userId}
+    match /userExtras/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if false;
+      allow create: if isOwner(userId) && isValidId(userId) && isValidUserExtras(incoming());
+      allow update: if isOwner(userId) && isValidId(userId) &&
+        isValidUserExtras(incoming()) &&
+        incoming().uid == existing().uid;
+      allow delete: if false;
+    }
+
     // /users/{userId}
     match /users/{userId} {
       allow get: if isOwner(userId) && isValidId(userId);
