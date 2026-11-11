@@ -1566,6 +1566,37 @@ export class GameEngine {
     }
   }
 
+  /**
+   * Photo mode: a "selfie" of Whiskers (and his buddy) from the front, or the room view inside
+   * the fish house. The on-screen buttons are not part of the 3D view, so they never show up.
+   */
+  public takePhoto(): string | null {
+    const cam = this.camera;
+    const savedPos = cam.position.clone();
+    const savedQuat = cam.quaternion.clone();
+    let unpose: (() => void) | null = null;
+    try {
+      if (!this.houseView) {
+        const p = this.player.group.position;
+        const h = this.player.group.rotation.y;
+        cam.position.set(p.x + Math.sin(h) * 3.1 + Math.cos(h) * 0.9, p.y + 0.75, p.z + Math.cos(h) * 3.1 - Math.sin(h) * 0.9);
+        cam.lookAt(p.x - Math.cos(h) * 0.35, p.y + 0.25, p.z + Math.sin(h) * 0.35);
+        if (this.buddy.group.visible) unpose = this.buddy.poseForPhoto(this.player.group, cam.position);
+      }
+      this.renderer.render(this.scene, cam);
+      return this.renderer.domElement.toDataURL('image/jpeg', 0.92);
+    } catch (err) {
+      console.warn('Could not take a photo:', err);
+      return null;
+    } finally {
+      unpose?.();
+      cam.position.copy(savedPos);
+      cam.quaternion.copy(savedQuat);
+      sound.playShutter();
+      this.buddy.celebrate();
+    }
+  }
+
   /** Whiskers' baby fish buddy (null hides it). */
   public setBuddy(look: BuddyLook | null) {
     this.buddy.group.visible = !!look;

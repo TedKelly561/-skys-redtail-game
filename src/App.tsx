@@ -19,6 +19,8 @@ import { DressUpShop } from './components/DressUpShop';
 import { FishHouseRoom } from './components/FishHouseRoom';
 import { HouseItem, HouseState, HouseView, loadHouse, saveHouse } from './game/house';
 import { BuddyLook, loadBuddy, saveBuddy } from './game/buddy';
+import { Photo, framePhoto, loadAlbum, saveAlbum } from './game/photos';
+import { PhotoAlbum, PhotoView } from './components/Photos';
 import { ClosetItem, ClosetSlot, ClosetState, loadCloset, saveCloset } from './game/closet';
 import { sound } from './game/audio';
 import { narrator } from './game/voice';
@@ -80,6 +82,11 @@ export default function App() {
   // Baby fish buddy (asked for once, after the player's name).
   const [buddy, setBuddy] = useState<BuddyLook | null>(() => loadBuddy());
   const [buddyLater, setBuddyLater] = useState<boolean>(false);
+  // Photo mode: the photo just taken (shown big) and the little album.
+  const [photos, setPhotos] = useState<Photo[]>(() => loadAlbum());
+  const [photoShot, setPhotoShot] = useState<string | null>(null);
+  const [albumOpen, setAlbumOpen] = useState<boolean>(false);
+  const [flash, setFlash] = useState<boolean>(false);
   const [lakeUnlocked, setLakeUnlocked] = useState<boolean>(() => GameEngine.isLakeUnlocked());
   useEffect(() => {
     if (gameState === 'victory') setLakeUnlocked(true);
@@ -420,6 +427,31 @@ export default function App() {
     narrator.say(next ? 'Night time! Look for the fireflies!' : 'Good morning, Whiskers!', true);
   };
 
+  const takePhoto = async () => {
+    const engine = engineRef.current;
+    if (!engine || photoShot) return;
+    const shot = engine.takePhoto();
+    if (!shot) return;
+    setFlash(true);
+    window.setTimeout(() => setFlash(false), 250);
+    engine.pauseGame();
+    const names = [playerName, 'Whiskers', buddy?.name].filter((n): n is string => !!n);
+    const caption = names.length > 1 ? `${names.slice(0, -1).join(', ')} & ${names[names.length - 1]}` : names[0];
+    try {
+      const framed = await framePhoto(shot, caption);
+      setPhotos((prev) => saveAlbum([{ url: framed, at: Date.now() }, ...prev]));
+      setPhotoShot(framed);
+      narrator.say('What a great picture!', true);
+    } catch {
+      engine.resumeGame();
+    }
+  };
+
+  const closePhoto = () => {
+    setPhotoShot(null);
+    engineRef.current?.resumeGame();
+  };
+
   const changeHouseView = (view: HouseView) => {
     setHouseViewState(view);
     engineRef.current?.setHouseView(view);
@@ -588,6 +620,8 @@ export default function App() {
           onContinue={() => engineRef.current?.continueGame()}
           lakeUnlocked={lakeUnlocked}
           onGoToLake={() => engineRef.current?.startLakeSwim()}
+          photoCount={photos.length}
+          onOpenPhotos={() => setAlbumOpen(true)}
           buddy={buddy}
           askForBuddy={!buddy && !buddyLater && !askForName}
           onPreviewBuddy={(look) => engineRef.current?.setBuddy(look)}
@@ -624,6 +658,7 @@ export default function App() {
           treasurePopup={treasurePopup}
           sniffReady={sniffReady}
           onPause={handlePause}
+          onTakePhoto={() => void takePhoto()}
           onTriggerSonar={handleTriggerSonar}
           onSetBoost={handleSetBoost}
           onVirtualSteer={handleVirtualSteer}
@@ -639,7 +674,7 @@ export default function App() {
       )}
 
       {/* Inside Whiskers' fish house */}
-      {gameState === 'playing' && inHouse && (
+      {(gameState === 'playing' || (gameState === 'paused' && !!photoShot)) && inHouse && (
         <FishHouseRoom
           wallet={wallet}
           house={house}
@@ -651,11 +686,23 @@ export default function App() {
           onBedtime={goToBed}
           onExit={() => engineRef.current?.exitHouse()}
           onSay={(text) => narrator.say(text, true)}
+          onTakePhoto={() => void takePhoto()}
+        />
+      )}
+
+      {/* Photo mode */}
+      {flash && <div className="absolute inset-0 z-[70] bg-white pointer-events-none animate-pop" />}
+      {photoShot && <PhotoView url={photoShot} title="📷 Snap!" onClose={closePhoto} />}
+      {albumOpen && (
+        <PhotoAlbum
+          photos={photos}
+          onClose={() => setAlbumOpen(false)}
+          onDelete={(at) => setPhotos((prev) => saveAlbum(prev.filter((p) => p.at !== at)))}
         />
       )}
 
       {/* Pause Menu Modal */}
-      {gameState === 'paused' && !isShopOpen && (
+      {gameState === 'paused' && !isShopOpen && !photoShot && (
         <PauseMenu
           onResume={handleResume}
           onRestart={handleRestart}

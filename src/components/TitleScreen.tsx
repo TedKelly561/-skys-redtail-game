@@ -27,6 +27,8 @@ interface TitleScreenProps {
   askForBuddy: boolean;
   onPreviewBuddy: (look: BuddyLook) => void;
   onSetBuddy: (look: BuddyLook | null) => void;
+  photoCount: number;
+  onOpenPhotos: () => void;
   dailyMissions: DailyMissionsState;
   onOpenDailyMissions: () => void;
   playerName: string;
@@ -205,6 +207,8 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   askForBuddy,
   onPreviewBuddy,
   onSetBuddy,
+  photoCount,
+  onOpenPhotos,
   dailyMissions,
   onOpenDailyMissions,
   playerName,
@@ -442,6 +446,15 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                 />
                 <span>{buddy ? buddy.name : 'Buddy'}</span>
               </button>
+              {photoCount > 0 && (
+                <button
+                  onClick={onOpenPhotos}
+                  className="pointer-events-auto flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-slate-950/80 border border-white/15 text-white text-base font-bold shadow-lg transition active:scale-95 cursor-pointer"
+                >
+                  <span className="text-lg leading-none">📷</span>
+                  <span>Photos</span>
+                </button>
+              )}
             </div>
 
             {showPlaces && (

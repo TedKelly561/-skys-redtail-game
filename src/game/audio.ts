@@ -479,6 +479,29 @@ class SoundManager {
     osc.stop(now + dur + 0.02);
   }
 
+  /** Camera shutter "click-whirr" for photo mode. */
+  public playShutter() {
+    this.initCtx();
+    if (!this.ctx || !this.masterGain || this.isMuted) return;
+    const now = this.ctx.currentTime;
+    [0, 0.07].forEach((d) => {
+      if (!this.ctx || !this.masterGain) return;
+      const noise = this.ctx.createBufferSource();
+      noise.buffer = this.getNoise(this.ctx);
+      const hp = this.ctx.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.value = 2500;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.4, now + d);
+      g.gain.exponentialRampToValueAtTime(0.001, now + d + 0.05);
+      noise.connect(hp);
+      hp.connect(g);
+      g.connect(this.masterGain);
+      noise.start(now + d);
+      noise.stop(now + d + 0.06);
+    });
+  }
+
   /** "Wheee!" sliding down the waterfall. */
   public playWhee() {
     this.initCtx();

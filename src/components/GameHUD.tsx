@@ -21,6 +21,7 @@ interface GameHUDProps {
   treasurePopup: TreasurePopupInfo | null;
   sniffReady: boolean;
   onPause: () => void;
+  onTakePhoto: () => void;
   onTriggerSonar: () => void;
   onSetBoost: (boosting: boolean) => void;
   onVirtualSteer: (x: number, y: number) => void;
@@ -121,6 +122,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   treasurePopup,
   sniffReady,
   onPause,
+  onTakePhoto,
   onTriggerSonar,
   onSetBoost,
   onVirtualSteer,
@@ -269,6 +271,14 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             <span className="text-sm font-black tabular-nums">
               {friendsMet}/{friendsTotal}
             </span>
+          </button>
+          <button
+            type="button"
+            onClick={onTakePhoto}
+            className={`pointer-events-auto w-11 h-11 rounded-full ${panel} text-white flex items-center justify-center text-xl active:scale-90 transition cursor-pointer`}
+            aria-label="Take a photo"
+          >
+            📷
           </button>
           {miniGame.pearls && (
             <div

@@ -123,6 +123,25 @@ export class BabyFish {
     this.finMat.emissive.set(color).multiplyScalar(0.25);
   }
 
+  /** Pose next to Whiskers' face for a photo (returns a function that puts it back). */
+  public poseForPhoto(whiskers: THREE.Object3D, camera: THREE.Vector3): () => void {
+    const g = this.group;
+    const pos = g.position.clone();
+    const rotY = g.rotation.y;
+    const h = whiskers.rotation.y;
+    g.position.set(
+      whiskers.position.x + Math.sin(h) * 0.75 - Math.cos(h) * 0.7,
+      whiskers.position.y + 0.45,
+      whiskers.position.z + Math.cos(h) * 0.75 + Math.sin(h) * 0.7
+    );
+    g.rotation.y = Math.atan2(camera.x - g.position.x, camera.z - g.position.z);
+    g.updateMatrixWorld(true);
+    return () => {
+      g.position.copy(pos);
+      g.rotation.y = rotY;
+    };
+  }
+
   /** A happy little loop-the-loop. */
   public celebrate() {
     this.spin = 1;
