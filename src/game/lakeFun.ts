@@ -165,6 +165,8 @@ export class TreasureDive {
   private disposables: { dispose: () => void }[] = [];
   private day = '';
   private time = 0;
+  /** Set when Whiskers is right above a pearl but not deep enough to grab it. */
+  public aboveButHigh = false;
 
   constructor(scene: THREE.Scene) {
     scene.add(this.group);
@@ -262,14 +264,18 @@ export class TreasureDive {
     this.time += dt;
     if (todayKey() !== this.day) this.placeForToday();
     let got = false;
+    this.aboveButHigh = false;
     for (const c of this.clams) {
       if (c.found) continue;
       const s = 2 + Math.sin(this.time * 3 + c.pos.x) * 0.4;
       c.glow.scale.setScalar(s);
-      if (Math.hypot(player.x - c.pos.x, player.z - c.pos.z) < 2.3 && player.y < c.pos.y + 2.6) {
+      const d = Math.hypot(player.x - c.pos.x, player.z - c.pos.z);
+      if (d < 2.3 && player.y < c.pos.y + 2.6) {
         this.setFound(c, true);
         this.save();
         got = true;
+      } else if (d < 4) {
+        this.aboveButHigh = true;
       }
     }
     return got;

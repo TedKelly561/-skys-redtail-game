@@ -12,6 +12,8 @@ interface FishHouseRoomProps {
   onBuy: (item: HouseItem) => void;
   onBedtime: () => void;
   onExit: () => void;
+  /** Read a short message aloud (for players who can't read yet). */
+  onSay: (text: string) => void;
 }
 
 const btn =
@@ -27,6 +29,7 @@ export const FishHouseRoom: React.FC<FishHouseRoomProps> = ({
   onBuy,
   onBedtime,
   onExit,
+  onSay,
 }) => {
   const [decorating, setDecorating] = useState(false);
 
@@ -75,27 +78,31 @@ export const FishHouseRoom: React.FC<FishHouseRoomProps> = ({
               return (
                 <button
                   key={item.id}
-                  onClick={() => canBuy && onBuy(item)}
-                  disabled={!canBuy}
+                  onClick={() => {
+                    if (canBuy) onBuy(item);
+                    else if (owned) onSay(`The ${item.name.toLowerCase()} is already in your house!`);
+                    else onSay(`The ${item.name.toLowerCase()} needs ${item.price - wallet} more stars.`);
+                  }}
                   aria-label={owned ? `${item.name}, in your house` : `${item.name}, ${item.price} stars`}
                   className={`flex flex-col items-center gap-0.5 p-2 rounded-2xl border-2 text-center transition ${
                     owned
                       ? 'bg-emerald-500/20 border-emerald-400 text-emerald-100'
                       : canBuy
                         ? 'bg-slate-800 border-amber-300 text-white hover:bg-slate-700 active:scale-95 cursor-pointer'
-                        : 'bg-slate-800/60 border-slate-700 text-slate-400'
+                        : 'bg-slate-800/60 border-slate-700 text-slate-400 cursor-pointer'
                   }`}
                 >
                   <span className="text-3xl leading-none">{item.icon}</span>
                   <span className="text-[10px] sm:text-xs font-bold leading-tight">{item.name}</span>
                   <span className="text-[11px] font-black tabular-nums">
-                    {owned ? '✓ Yours' : canBuy ? `⭐ ${item.price}` : `⭐ ${item.price}`}
+                    {owned ? '✓ Yours' : `⭐ ${item.price}`}
                   </span>
                 </button>
               );
             })}
           </div>
-          {wallet < Math.min(...HOUSE_ITEMS.filter((i) => !house.owned.includes(i.id)).map((i) => i.price), Infinity) && (
+          {house.owned.length < HOUSE_ITEMS.length &&
+            wallet < Math.min(...HOUSE_ITEMS.filter((i) => !house.owned.includes(i.id)).map((i) => i.price)) && (
             <p className="text-[11px] text-slate-300 mt-2 text-center">
               Get more stars: bubble jumps, pearls, tag with the otter, and the waterfall!
             </p>

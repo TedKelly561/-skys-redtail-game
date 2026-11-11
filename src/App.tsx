@@ -76,9 +76,13 @@ export default function App() {
   const [tryingOn, setTryingOn] = useState<ClosetItem | null>(null);
   const [isShopOpen, setIsShopOpen] = useState<boolean>(false);
   const [savedPlace] = useState<number | null>(() => GameEngine.loadSavedPlace());
+  const [lakeUnlocked, setLakeUnlocked] = useState<boolean>(() => GameEngine.isLakeUnlocked());
+  useEffect(() => {
+    if (gameState === 'victory') setLakeUnlocked(true);
+  }, [gameState]);
   const continueChapter =
     savedPlace === null ? null : [...CHAPTERS].reverse().find((c) => savedPlace >= c.startDist) ?? null;
-  const [miniGame, setMiniGame] = useState<MiniGameInfo>({ canHideSeek: false, hideSeekActive: false, race: null });
+  const [miniGame, setMiniGame] = useState<MiniGameInfo>({ canHideSeek: false, hideSeekActive: false, race: null, pearls: null });
   const [isNight, setIsNight] = useState<boolean>(() => {
     try {
       return localStorage.getItem('whiskers_night') === 'true';
@@ -577,6 +581,8 @@ export default function App() {
           onToggleNight={toggleNight}
           continueChapter={continueChapter}
           onContinue={() => engineRef.current?.continueGame()}
+          lakeUnlocked={lakeUnlocked}
+          onGoToLake={() => engineRef.current?.startLakeSwim()}
           dailyMissions={dailyMissions}
           onOpenDailyMissions={openDailyMissions}
           playerName={playerName}
@@ -626,6 +632,7 @@ export default function App() {
           onBuy={buyHouseItem}
           onBedtime={goToBed}
           onExit={() => engineRef.current?.exitHouse()}
+          onSay={(text) => narrator.say(text, true)}
         />
       )}
 

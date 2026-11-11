@@ -18,6 +18,9 @@ interface TitleScreenProps {
   /** Part of the river saved from last time, if any (shows a Continue button). */
   continueChapter: RiverChapterInfo | null;
   onContinue: () => void;
+  /** Shown once the Grand Lake has been reached: jump straight into free swim there. */
+  lakeUnlocked: boolean;
+  onGoToLake: () => void;
   dailyMissions: DailyMissionsState;
   onOpenDailyMissions: () => void;
   playerName: string;
@@ -110,6 +113,8 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   onToggleNight,
   continueChapter,
   onContinue,
+  lakeUnlocked,
+  onGoToLake,
   dailyMissions,
   onOpenDailyMissions,
   playerName,
@@ -288,6 +293,15 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
             )}
 
             <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+              {lakeUnlocked && (
+                <button
+                  onClick={onGoToLake}
+                  className="pointer-events-auto flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-sky-500/90 border border-white/30 text-white text-base font-bold shadow-lg transition active:scale-95 cursor-pointer"
+                >
+                  <span className="text-lg leading-none">🏝️</span>
+                  <span>Grand Lake</span>
+                </button>
+              )}
               <button
                 onClick={() => setShowPlaces((v) => !v)}
                 className="pointer-events-auto flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-slate-950/80 border border-white/15 text-white text-base font-bold shadow-lg transition active:scale-95 cursor-pointer"
