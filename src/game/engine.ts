@@ -110,6 +110,8 @@ export type Difficulty = 'gentle' | 'normal' | 'tricky';
  * Bad guy settings per level. chase: 'slow' = slower than Whiskers' normal swim, otherwise a
  * fraction of his Zoom speed. snack: tummy taken when caught (0 = just a bump).
  */
+const LAKE_KEY = 'whiskers_lake_unlocked';
+
 const DIFFICULTY: Record<
   Difficulty,
   { wake: number; zoomWake: number; notice: number; chaseTime: number; chase: 'slow' | number; snack: number; cat: CatTuning }
@@ -125,6 +127,8 @@ export interface MiniGameInfo {
   hideSeekActive: boolean;
   /** Both racers' progress (0..1) while the dolphin race is on. */
   race: RaceProgress | null;
+  /** Today's treasure dive in the Grand Lake (free swim only). */
+  pearls: { found: number; total: number } | null;
 }
 
 export class GameEngine {
@@ -163,6 +167,7 @@ export class GameEngine {
   private houseLook = new THREE.Vector3();
   private stickerCache: Partial<Record<FriendKind, string>> | null = null;
   private stickerCacheCount = -1;
+  private diveHintCooldown = 0;
   private isJumping = false;
   private jumpVel = 0;
   private rideTangent = new THREE.Vector3();
@@ -583,6 +588,35 @@ export class GameEngine {
   }
 
   /** Continue from the saved place in the river (a little before it, for a gentle restart). */
+  /** True once Whiskers has reached the Grand Lake on this device. */
+  public static isLakeUnlocked(): boolean {
+    try {
+      return localStorage.getItem(LAKE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  }
+
+  /** Title shortcut: go straight to free swimming in the Grand Lake with the family. */
+  public startLakeSwim() {
+    this.startGame(CHAPTERS.length - 1);
+    this.playerDistance = 2470;
+    this.playerLateral = 0;
+    this.playerDepth = -1.6;
+    this.updateChapter(true);
+    const { position, tangent } = getRiverPath(this.playerDistance);
+    const heading = Math.atan2(tangent.x, tangent.z);
+    this.player.group.position.set(position.x, this.playerDepth, position.z);
+    this.player.group.rotation.set(0, heading, 0);
+    this.camera.position.set(position.x - tangent.x * 6.2, 1.5, position.z - tangent.z * 6.2);
+    this.meetFriend('family', false);
+    this.riverWorld.setFamilyFollow(this.player.group.position);
+    this.rainbow.setVisible(true);
+    this.gameState = 'victory'; // free swim starts from the finale
+    this.startFreeSwim();
+    narrator.say('Welcome back to the Grand Lake!', true);
+  }
+
   public continueGame() {
     const saved = GameEngine.loadSavedPlace();
     this.startGame(0);
@@ -1332,6 +1366,7 @@ export class GameEngine {
       canHideSeek: this.isFreeSwim && !this.hideSeek.active,
       hideSeekActive: this.hideSeek.active,
       race: race ? { whiskers: Math.round(race.whiskers * 50) / 50, dolphin: Math.round(race.dolphin * 50) / 50 } : null,
+      pearls: this.isFreeSwim ? { found: this.dive.foundCount, total: this.dive.total } : null,
     };
     const key = JSON.stringify(info);
     if (key !== this.lastMiniKey) {
@@ -1474,7 +1509,14 @@ export class GameEngine {
       sound.playMilestone();
     }
 
-    if (canPlay && this.dive.update(dt, p)) {
+    this.diveHintCooldown = Math.max(0, this.diveHintCooldown - dt);
+    const gotPearl = canPlay && this.dive.update(dt, p);
+    if (canPlay && !gotPearl && this.dive.aboveButHigh && this.diveHintCooldown <= 0) {
+      this.diveHintCooldown = 10;
+      this.callbacks.onTipMessage('A pearl is down there! Dive down to get it! ⬇️');
+      narrator.say('Dive down to get the pearl!', true);
+    }
+    if (gotPearl) {
       const n = this.dive.foundCount;
       const all = n >= this.dive.total;
       this.rewardStars(all ? 8 : 3, 15);
@@ -1816,6 +1858,11 @@ export class GameEngine {
 
   private triggerGrandLakeCelebration() {
     this.savePlace(null); // journey finished: next time starts fresh
+    try {
+      localStorage.setItem(LAKE_KEY, 'true');
+    } catch {
+      // ignore
+    }
     this.gameState = 'victory';
     this.callbacks.onStateChange('victory');
     this.setNearbyFriend(null);

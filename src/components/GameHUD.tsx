@@ -270,6 +270,17 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               {friendsMet}/{friendsTotal}
             </span>
           </button>
+          {miniGame.pearls && (
+            <div
+              className={`flex items-center gap-1.5 pl-2 pr-3 py-1 rounded-full ${panel} text-white`}
+              aria-label={`Pearls found today: ${miniGame.pearls.found} of ${miniGame.pearls.total}`}
+            >
+              <span className="text-xl">🦪</span>
+              <span className="text-sm font-black tabular-nums">
+                {miniGame.pearls.found}/{miniGame.pearls.total}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 

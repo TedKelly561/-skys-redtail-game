@@ -14,9 +14,13 @@ class SoundManager {
   private isAmbientPlaying: boolean = false;
 
   constructor() {
-    const savedMute = localStorage.getItem('whiskers_sound_muted');
-    if (savedMute !== null) {
-      this.isMuted = savedMute === 'true';
+    try {
+      const savedMute = localStorage.getItem('whiskers_sound_muted');
+      if (savedMute !== null) {
+        this.isMuted = savedMute === 'true';
+      }
+    } catch {
+      // Storage blocked: start with sound on.
     }
   }
 
@@ -32,12 +36,19 @@ class SoundManager {
       // Pause all sound while the tab or app is in the background (saves battery on phones).
       document.addEventListener('visibilitychange', () => {
         if (!this.ctx) return;
-        if (document.hidden) this.ctx.suspend();
-        else this.ctx.resume();
+        if (document.hidden) this.ctx.suspend().catch(() => {});
+        else this.ctx.resume().catch(() => {});
       });
+      // iPhone/iPad can stop sound on their own (a phone call, the lock screen, another app).
+      // Browsers only let us restart it from a tap, so try again on the next one.
+      const wake = () => {
+        if (this.ctx && this.ctx.state !== 'running' && !document.hidden) this.ctx.resume().catch(() => {});
+      };
+      document.addEventListener('pointerdown', wake, true);
+      document.addEventListener('touchend', wake, true);
     }
-    if (this.ctx.state === 'suspended') {
-      this.ctx.resume();
+    if (this.ctx.state !== 'running' && !document.hidden) {
+      this.ctx.resume().catch(() => {});
     }
   }
 
@@ -49,7 +60,11 @@ class SoundManager {
 
   public setMuted(muted: boolean) {
     this.isMuted = muted;
-    localStorage.setItem('whiskers_sound_muted', String(muted));
+    try {
+      localStorage.setItem('whiskers_sound_muted', String(muted));
+    } catch {
+      // ignore
+    }
     if (this.masterGain && this.ctx) {
       this.masterGain.gain.setValueAtTime(muted ? 0 : 0.8, this.ctx.currentTime);
     }
