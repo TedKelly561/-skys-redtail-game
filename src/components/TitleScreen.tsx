@@ -5,6 +5,7 @@ import { TreasureCounts } from '../game/engine';
 import { DailyMissionsState } from '../game/dailyMissions';
 import { useIsTouchDevice } from './GameHUD';
 import { MAX_NAME_LENGTH } from '../game/profile';
+import { BUDDY_COLORS, BUDDY_NAMES, BuddyLook, MAX_BUDDY_NAME, cleanBuddyName } from '../game/buddy';
 
 interface TitleScreenProps {
   onStartGame: (chapterIdx: number) => void;
@@ -21,6 +22,11 @@ interface TitleScreenProps {
   /** Shown once the Grand Lake has been reached: jump straight into free swim there. */
   lakeUnlocked: boolean;
   onGoToLake: () => void;
+  /** Baby fish buddy: current look, whether to ask for one now, and handlers. */
+  buddy: BuddyLook | null;
+  askForBuddy: boolean;
+  onPreviewBuddy: (look: BuddyLook) => void;
+  onSetBuddy: (look: BuddyLook | null) => void;
   dailyMissions: DailyMissionsState;
   onOpenDailyMissions: () => void;
   playerName: string;
@@ -77,6 +83,86 @@ const NameCard: React.FC<{
   );
 };
 
+/** Pick a name and color for the baby fish buddy (the 3D buddy updates live behind it). */
+const BuddyCard: React.FC<{
+  initial: BuddyLook | null;
+  onPreview: (look: BuddyLook) => void;
+  onDone: (look: BuddyLook | null) => void;
+}> = ({ initial, onPreview, onDone }) => {
+  const [color, setColor] = useState(initial?.color || BUDDY_COLORS[0].color);
+  const [name, setName] = useState(initial?.name || BUDDY_NAMES[0]);
+  const pick = (next: Partial<BuddyLook>) => {
+    const look = { name: next.name ?? name, color: next.color ?? color };
+    if (next.color) setColor(next.color);
+    if (next.name !== undefined) setName(next.name);
+    onPreview({ ...look, name: cleanBuddyName(look.name) || BUDDY_NAMES[0] });
+  };
+  return (
+    <form
+      className="pointer-events-auto w-full max-w-xs p-4 rounded-3xl bg-slate-950/85 border-2 border-white/15 shadow-2xl flex flex-col items-center gap-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onDone({ name: cleanBuddyName(name) || BUDDY_NAMES[0], color });
+      }}
+    >
+      <div className="text-xl font-black text-white text-center leading-tight">🐠 Meet your baby fish buddy!</div>
+      <div className="flex gap-2" role="radiogroup" aria-label="Buddy color">
+        {BUDDY_COLORS.map((c) => (
+          <button
+            key={c.color}
+            type="button"
+            role="radio"
+            aria-checked={color === c.color}
+            aria-label={c.label}
+            onClick={() => pick({ color: c.color })}
+            className={`w-9 h-9 rounded-full border-4 transition active:scale-90 cursor-pointer ${
+              color === c.color ? 'border-white scale-110' : 'border-white/20'
+            }`}
+            style={{ background: c.color }}
+          />
+        ))}
+      </div>
+      <div className="flex flex-wrap justify-center gap-1.5">
+        {BUDDY_NAMES.map((n) => (
+          <button
+            key={n}
+            type="button"
+            onClick={() => pick({ name: n })}
+            className={`px-3 py-1.5 rounded-full text-sm font-black transition active:scale-95 cursor-pointer ${
+              name === n ? 'bg-amber-300 text-slate-900' : 'bg-slate-800 text-white'
+            }`}
+          >
+            {n}
+          </button>
+        ))}
+      </div>
+      <input
+        value={name}
+        onChange={(e) => pick({ name: e.target.value })}
+        maxLength={MAX_BUDDY_NAME}
+        autoComplete="off"
+        autoCapitalize="words"
+        aria-label="Buddy name"
+        placeholder="Or type a name"
+        className="w-full px-4 py-2 rounded-2xl bg-white text-slate-900 text-xl font-bold text-center outline-none border-4 border-teal-300 focus:border-amber-300"
+      />
+      <button
+        type="submit"
+        className="w-full py-3 rounded-2xl bg-gradient-to-b from-emerald-400 to-emerald-600 border-4 border-white/80 text-white text-xl font-black transition active:scale-95 cursor-pointer"
+      >
+        That's my buddy!
+      </button>
+      <button
+        type="button"
+        onClick={() => onDone(null)}
+        className="text-sm font-semibold text-white/60 hover:text-white cursor-pointer"
+      >
+        Not now
+      </button>
+    </form>
+  );
+};
+
 /** Five big picture cards so a child can jump to their favorite part of the river. */
 export const PlacePicker: React.FC<{
   onPick: (idx: number) => void;
@@ -115,6 +201,10 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   onContinue,
   lakeUnlocked,
   onGoToLake,
+  buddy,
+  askForBuddy,
+  onPreviewBuddy,
+  onSetBuddy,
   dailyMissions,
   onOpenDailyMissions,
   playerName,
@@ -126,7 +216,9 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
 }) => {
   const [showPlaces, setShowPlaces] = useState(false);
   const [editingName, setEditingName] = useState(false);
+  const [editingBuddy, setEditingBuddy] = useState(false);
   const showNameCard = askForName || editingName;
+  const showBuddyCard = !showNameCard && (askForBuddy || editingBuddy);
   const isTouch = useIsTouchDevice();
 
   const doneMissions = dailyMissions.missions.filter((m) => m.completed).length;
@@ -244,6 +336,17 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
               }}
             />
           </div>
+        ) : showBuddyCard ? (
+          <div className="mt-2 w-full flex justify-center">
+            <BuddyCard
+              initial={buddy}
+              onPreview={onPreviewBuddy}
+              onDone={(look) => {
+                onSetBuddy(look);
+                setEditingBuddy(false);
+              }}
+            />
+          </div>
         ) : (
           <>
             {playerName ? (
@@ -327,6 +430,17 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
               >
                 <span className="text-lg leading-none">👒</span>
                 <span>Dress up</span>
+              </button>
+              <button
+                onClick={() => setEditingBuddy(true)}
+                aria-label={buddy ? `Your buddy ${buddy.name}. Tap to change` : 'Get a baby fish buddy'}
+                className="pointer-events-auto flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-slate-950/80 border border-white/15 text-white text-base font-bold shadow-lg transition active:scale-95 cursor-pointer"
+              >
+                <span
+                  className="w-4 h-4 rounded-full border-2 border-white/70"
+                  style={{ background: buddy?.color || BUDDY_COLORS[0].color }}
+                />
+                <span>{buddy ? buddy.name : 'Buddy'}</span>
               </button>
             </div>
 

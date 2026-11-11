@@ -20,6 +20,7 @@ import { RainbowGoal } from './rainbow';
 import { BadGuys } from './badGuys';
 import { BushCats, CatTuning } from './cats';
 import { FishHouse, HouseView } from './house';
+import { BabyFish, BuddyLook } from './buddy';
 import { BubbleGeysers, Otter, TreasureDive, WaterfallSlide, dailyAllowance } from './lakeFun';
 import { Fireflies } from './fireflies';
 import { music } from './music';
@@ -155,6 +156,8 @@ export class GameEngine {
   private rainbow: RainbowGoal;
   private badGuys: BadGuys;
   private cats: BushCats;
+  private buddy: BabyFish;
+  private buddyName = '';
   private house: FishHouse;
   private geysers: BubbleGeysers;
   private dive: TreasureDive;
@@ -333,6 +336,8 @@ export class GameEngine {
 
     this.player = new CatfishCharacter();
     this.scene.add(this.player.group);
+    this.buddy = new BabyFish(this.scene);
+    this.buddy.group.visible = false;
 
     this.riverWorld = new RiverWorld(this.scene);
     this.itemManager = new ItemManager(this.scene);
@@ -673,8 +678,9 @@ export class GameEngine {
     this.ringManager.reset();
     this.chestManager.reset();
     const name = getPlayerName();
+    const buddy = this.buddyName ? ` ${this.buddyName} is coming too!` : '';
     this.callbacks.onTipMessage(
-      name ? `Let's go, ${name}! Swim to the Grand Lake!` : 'Swim down the river to the Grand Lake!'
+      name ? `Let's go, ${name}!${buddy || ' Swim to the Grand Lake!'}` : `Swim down the river to the Grand Lake!${buddy}`
     );
   }
 
@@ -764,6 +770,7 @@ export class GameEngine {
     saveMetFriends(this.metFriends);
     this.callbacks.onFriendsChange([...this.metFriends]);
     if (!announce) return;
+    this.buddy.celebrate();
     const name = friendName(kind);
     this.counts.totalPoints += 20;
     this.saveLocalProgress();
@@ -837,6 +844,7 @@ export class GameEngine {
 
       this.forest.update(dt);
       this.updateLakeWorld(dt);
+      if (this.buddy.group.visible) this.buddy.update(dt, this.player.group);
       this.waterLook.uniforms.uTime.value += dt;
       this.streamer.update(dt, this.player.group.position);
       this.adaptiveResolution.update(rawDt);
@@ -1558,7 +1566,15 @@ export class GameEngine {
     }
   }
 
+  /** Whiskers' baby fish buddy (null hides it). */
+  public setBuddy(look: BuddyLook | null) {
+    this.buddy.group.visible = !!look;
+    this.buddyName = look?.name || '';
+    if (look) this.buddy.setColor(look.color);
+  }
+
   private rewardStars(stars: number, points: number) {
+    if (stars > 0) this.buddy.celebrate();
     this.counts.stars += stars;
     this.counts.totalPoints += points;
     this.saveLocalProgress();
@@ -1898,6 +1914,7 @@ export class GameEngine {
     this.sparkles.dispose();
     this.rainbow.dispose();
     this.badGuys.dispose();
+    this.buddy.dispose();
     this.house.dispose();
     this.geysers.dispose();
     this.dive.dispose();

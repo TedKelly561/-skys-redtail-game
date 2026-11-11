@@ -18,6 +18,7 @@ import { StickerBook } from './components/StickerBook';
 import { DressUpShop } from './components/DressUpShop';
 import { FishHouseRoom } from './components/FishHouseRoom';
 import { HouseItem, HouseState, HouseView, loadHouse, saveHouse } from './game/house';
+import { BuddyLook, loadBuddy, saveBuddy } from './game/buddy';
 import { ClosetItem, ClosetSlot, ClosetState, loadCloset, saveCloset } from './game/closet';
 import { sound } from './game/audio';
 import { narrator } from './game/voice';
@@ -76,6 +77,9 @@ export default function App() {
   const [tryingOn, setTryingOn] = useState<ClosetItem | null>(null);
   const [isShopOpen, setIsShopOpen] = useState<boolean>(false);
   const [savedPlace] = useState<number | null>(() => GameEngine.loadSavedPlace());
+  // Baby fish buddy (asked for once, after the player's name).
+  const [buddy, setBuddy] = useState<BuddyLook | null>(() => loadBuddy());
+  const [buddyLater, setBuddyLater] = useState<boolean>(false);
   const [lakeUnlocked, setLakeUnlocked] = useState<boolean>(() => GameEngine.isLakeUnlocked());
   useEffect(() => {
     if (gameState === 'victory') setLakeUnlocked(true);
@@ -234,6 +238,7 @@ export default function App() {
 
     engineRef.current = engine;
     engine.setHouseDecor(loadHouse().owned);
+    engine.setBuddy(loadBuddy());
     if (import.meta.env.DEV) {
       (window as unknown as { __whiskers?: GameEngine }).__whiskers = engine;
     }
@@ -583,6 +588,19 @@ export default function App() {
           onContinue={() => engineRef.current?.continueGame()}
           lakeUnlocked={lakeUnlocked}
           onGoToLake={() => engineRef.current?.startLakeSwim()}
+          buddy={buddy}
+          askForBuddy={!buddy && !buddyLater && !askForName}
+          onPreviewBuddy={(look) => engineRef.current?.setBuddy(look)}
+          onSetBuddy={(look) => {
+            if (look) {
+              setBuddy(look);
+              saveBuddy(look);
+              narrator.say(`Hi, ${look.name}! Let's swim together!`, true);
+            } else {
+              setBuddyLater(true);
+            }
+            engineRef.current?.setBuddy(look || buddy);
+          }}
           dailyMissions={dailyMissions}
           onOpenDailyMissions={openDailyMissions}
           playerName={playerName}
