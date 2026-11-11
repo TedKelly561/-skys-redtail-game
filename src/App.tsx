@@ -21,6 +21,8 @@ import { HouseItem, HouseState, HouseView, loadHouse, saveHouse } from './game/h
 import { BuddyLook, loadBuddy, saveBuddy } from './game/buddy';
 import { Photo, framePhoto, loadAlbum, saveAlbum } from './game/photos';
 import { SeasonSetting, loadSeasonSetting } from './game/seasons';
+import { LearningPrompt, loadLearningEnabled } from './game/learning';
+import { LearningCard } from './components/LearningCard';
 import { PhotoAlbum, PhotoView } from './components/Photos';
 import { ClosetItem, ClosetSlot, ClosetState, loadCloset, saveCloset } from './game/closet';
 import { sound } from './game/audio';
@@ -73,6 +75,8 @@ export default function App() {
   const [musicOn, setMusicOn] = useState<boolean>(() => music.getEnabled());
   const [difficulty, setDifficulty] = useState<Difficulty>(() => GameEngine.loadDifficulty());
   const [season, setSeason] = useState<SeasonSetting>(() => loadSeasonSetting());
+  const [learningOn, setLearningOn] = useState<boolean>(() => loadLearningEnabled());
+  const [learningPrompt, setLearningPrompt] = useState<LearningPrompt | null>(null);
   const [metFriends, setMetFriends] = useState<FriendKind[]>([]);
   const [friendNearby, setFriendNearby] = useState<boolean>(false);
   const [isFriendsOpen, setIsFriendsOpen] = useState<boolean>(false);
@@ -233,6 +237,7 @@ export default function App() {
       onFriendsChange: (met) => setMetFriends(met),
       onNearbyFriendChange: (kind) => setFriendNearby(kind !== null),
       onMiniGameChange: (info) => setMiniGame(info),
+      onLearningPrompt: (prompt) => setLearningPrompt(prompt),
       onHouseChange: (open) => {
         setInHouse(open);
         setHouseViewState('room');
@@ -675,6 +680,11 @@ export default function App() {
         />
       )}
 
+      {/* Learning moment question */}
+      {gameState === 'playing' && !inHouse && learningPrompt && (
+        <LearningCard prompt={learningPrompt} onAnswer={(opt) => engineRef.current?.answerLearning(opt)} />
+      )}
+
       {/* Inside Whiskers' fish house */}
       {(gameState === 'playing' || (gameState === 'paused' && !!photoShot)) && inHouse && (
         <FishHouseRoom
@@ -760,6 +770,11 @@ export default function App() {
         onSetMusic={handleSetMusic}
         difficulty={difficulty}
         onSetDifficulty={handleSetDifficulty}
+        learningOn={learningOn}
+        onSetLearning={(on) => {
+          setLearningOn(on);
+          engineRef.current?.setLearningEnabled(on);
+        }}
         season={season}
         onSetSeason={(v) => {
           setSeason(v);

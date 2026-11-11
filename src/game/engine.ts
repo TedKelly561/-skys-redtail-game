@@ -21,6 +21,7 @@ import { BadGuys } from './badGuys';
 import { BushCats, CatTuning } from './cats';
 import { FishHouse, HouseView } from './house';
 import { BabyFish, BuddyLook } from './buddy';
+import { LearningEvent, LearningMoments, LearningPrompt } from './learning';
 import { SeasonEffects, SeasonSetting, isHolidayTime, loadSeasonSetting, patchSeasonal, resolveSeason, saveSeasonSetting } from './seasons';
 import { BubbleGeysers, Otter, TreasureDive, WaterfallSlide, dailyAllowance } from './lakeFun';
 import { Fireflies } from './fireflies';
@@ -104,6 +105,8 @@ export interface GameCallbacks {
   onMiniGameChange: (info: MiniGameInfo) => void;
   /** Whiskers swam into (true) or out of (false) his fish house. */
   onHouseChange: (open: boolean) => void;
+  /** A learning question to show (null hides it). */
+  onLearningPrompt: (prompt: LearningPrompt | null) => void;
 }
 
 export type Difficulty = 'gentle' | 'normal' | 'tricky';
@@ -158,6 +161,7 @@ export class GameEngine {
   private badGuys: BadGuys;
   private cats: BushCats;
   private buddy: BabyFish;
+  private learning: LearningMoments;
   private seasonFx: SeasonEffects;
   public seasonSetting: SeasonSetting = 'auto';
   private buddyName = '';
@@ -340,6 +344,7 @@ export class GameEngine {
     this.player = new CatfishCharacter();
     this.scene.add(this.player.group);
     this.buddy = new BabyFish(this.scene);
+    this.learning = new LearningMoments(this.scene);
     this.buddy.group.visible = false;
 
     this.riverWorld = new RiverWorld(this.scene);
@@ -653,6 +658,8 @@ export class GameEngine {
     this.isJumping = false;
     this.jumpVel = 0;
     this.falls.cancel();
+    this.learning.reset();
+    this.callbacks.onLearningPrompt(null);
     this.race.reset();
     this.hideSeek.stop(this.riverWorld);
     this.hideSeekInviteTimer = 0;
@@ -722,6 +729,8 @@ export class GameEngine {
 
   public startFreeSwim() {
     if (this.gameState !== 'victory') return;
+    this.learning.clear();
+    this.callbacks.onLearningPrompt(null);
     this.isFreeSwim = true;
     this.freeHeading = this.player.group.rotation.y;
     this.turnVelocity = 0;
@@ -1222,6 +1231,11 @@ export class GameEngine {
     const level = DIFFICULTY[this.difficulty];
     this.updateBadGuys(dt, isBoosting, level.chase === 'slow' ? speedCfg.base * 0.9 : speedCfg.boost * level.chase);
     this.updateMiniGames(dt, prevDistance, (speedCfg.max + speedCfg.boost) / 2);
+    const canLearn =
+      !this.isFreeSwim && !this.hideSeek.active && this.playerDistance > 60 && this.playerDistance < 2150;
+    for (const ev of this.learning.update(dt, this.playerDistance, this.playerLateral, canLearn, getPlayerName())) {
+      this.handleLearning(ev);
+    }
 
     this.itemManager.updateAndCheckCollisions(
       dt,
@@ -1608,6 +1622,43 @@ export class GameEngine {
     }
   }
 
+  /** Learning moments on/off (grown-ups). */
+  public setLearningEnabled(on: boolean) {
+    this.learning.setEnabled(on);
+    if (!on) this.callbacks.onLearningPrompt(null);
+  }
+
+  public get learningEnabled() {
+    return this.learning.enabled;
+  }
+
+  /** The child tapped an answer on a learning question. */
+  public answerLearning(option: string) {
+    const ev = this.learning.answer(option);
+    if (ev) this.handleLearning(ev);
+  }
+
+  private handleLearning(ev: LearningEvent) {
+    if (ev.type === 'prompt') {
+      this.callbacks.onLearningPrompt(ev.prompt);
+      sound.playBarbelSense();
+      narrator.say(ev.say, true);
+    } else if (ev.type === 'result') {
+      if (ev.correct) {
+        this.rewardStars(2, 10);
+        sound.playMissionComplete();
+        this.sparkles.burst(ev.at, CONFETTI, 30, 3.5, 1.4);
+        this.callbacks.onTreasurePopup(ev.text, 2, '🎉');
+      } else {
+        this.callbacks.onTreasurePopup(ev.text, 0, '💛');
+      }
+      narrator.say(ev.say, true);
+      this.callbacks.onLearningPrompt(null);
+    } else {
+      this.callbacks.onLearningPrompt(null);
+    }
+  }
+
   /** Grown-ups season choice ('auto' follows the calendar). */
   public setSeasonSetting(setting: SeasonSetting, save = true) {
     this.seasonSetting = setting;
@@ -1964,6 +2015,7 @@ export class GameEngine {
     this.rainbow.dispose();
     this.badGuys.dispose();
     this.buddy.dispose();
+    this.learning.dispose();
     this.seasonFx.dispose();
     this.house.dispose();
     this.geysers.dispose();

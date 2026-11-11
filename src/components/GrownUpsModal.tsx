@@ -63,6 +63,8 @@ interface GrownUpsModalProps {
   onSetDifficulty: (level: Difficulty) => void;
   season: SeasonSetting;
   onSetSeason: (season: SeasonSetting) => void;
+  learningOn: boolean;
+  onSetLearning: (on: boolean) => void;
 }
 
 export const GrownUpsModal: React.FC<GrownUpsModalProps> = ({
@@ -89,6 +91,8 @@ export const GrownUpsModal: React.FC<GrownUpsModalProps> = ({
   onSetDifficulty,
   season,
   onSetSeason,
+  learningOn,
+  onSetLearning,
 }) => {
   const [nameDraft, setNameDraft] = useState(playerName);
   useEffect(() => {
@@ -224,6 +228,19 @@ export const GrownUpsModal: React.FC<GrownUpsModalProps> = ({
               />
             </label>
           )}
+
+          <label className="mt-3 flex items-center justify-between gap-3 cursor-pointer">
+            <span>
+              <span className="block text-sm font-bold text-sky-200">Learning moments</span>
+              <span className="block text-[11px] text-slate-400">Colors, letters and counting during the swim</span>
+            </span>
+            <input
+              type="checkbox"
+              checked={learningOn}
+              onChange={(e) => onSetLearning(e.target.checked)}
+              className="w-6 h-6 accent-teal-400 cursor-pointer"
+            />
+          </label>
 
           <label className="mt-3 flex items-center justify-between gap-3 cursor-pointer">
             <span>
