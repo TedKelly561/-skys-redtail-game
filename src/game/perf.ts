@@ -178,6 +178,11 @@ export class AdaptiveResolution {
     renderer.setPixelRatio(max);
   }
 
+  /** Frame time before the last step down, to check the step actually helped. */
+  private beforeDropMs = 0;
+  /** Set when lowering sharpness didn't make frames faster (e.g. a 30-frames-a-second cap). */
+  private stuck = false;
+
   public update(rawDt: number) {
     if (rawDt <= 0 || rawDt > 0.25) return; // ignore tab switches and hitches
     this.cooldown -= rawDt;
@@ -189,10 +194,25 @@ export class AdaptiveResolution {
     this.samples = 0;
     if (this.cooldown > 0) return;
 
+    // If the last step down didn't speed things up, the device is capped (battery saver,
+    // slow display link...). A blurrier picture won't help, so go back to sharp and stay.
+    if (this.beforeDropMs > 0) {
+      const helped = avgMs < this.beforeDropMs * 0.85;
+      this.beforeDropMs = 0;
+      if (!helped) {
+        this.stuck = true;
+        this.current = this.max;
+        this.renderer.setPixelRatio(this.max);
+        this.cooldown = 3;
+        return;
+      }
+    }
+
     let next = this.current;
-    if (avgMs > 24) next = Math.max(this.min, this.current - 0.25);
+    if (avgMs > 24 && !this.stuck) next = Math.max(this.min, this.current - 0.25);
     else if (avgMs < 15) next = Math.min(this.max, this.current + 0.25);
     if (next !== this.current) {
+      if (next < this.current) this.beforeDropMs = avgMs;
       this.current = next;
       this.renderer.setPixelRatio(next); // also resizes the drawing buffer
       this.cooldown = 3;
