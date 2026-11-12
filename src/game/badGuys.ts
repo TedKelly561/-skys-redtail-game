@@ -189,7 +189,7 @@ export class BadGuys {
     tailShape.quadraticCurveTo(-0.22, 0, -0.28, -0.22);
     tailShape.closePath();
     const tailGeo = new THREE.ShapeGeometry(tailShape);
-    tailGeo.rotateY(Math.PI / 2);
+    tailGeo.rotateY(-Math.PI / 2); // fan out behind the body (-Z)
     this.disposables.push(back, red, white, black, fin, sphere, cone, tailGeo);
 
     const part = (geo: THREE.BufferGeometry, mat: THREE.Material, p: number[], s: number[], r: number[] = [0, 0, 0]) => {
