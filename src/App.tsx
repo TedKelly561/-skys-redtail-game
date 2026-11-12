@@ -23,6 +23,7 @@ import { Photo, framePhoto, loadAlbum, saveAlbum } from './game/photos';
 import { SeasonSetting, loadSeasonSetting } from './game/seasons';
 import { LearningPrompt, loadLearningEnabled } from './game/learning';
 import { LearningCard } from './components/LearningCard';
+import { debugFlag } from './game/debugFlags';
 import { CloudExtras, applyExtrasLocally, collectLocalExtras, mergeExtras, sanitizeExtras } from './game/cloudExtras';
 import { ProfilesState, addProfile, isPrimaryProfile, loadProfiles, removeProfile, switchProfile, syncActiveProfileName } from './game/profiles';
 import { PhotoAlbum, PhotoView } from './components/Photos';
@@ -89,6 +90,16 @@ export default function App() {
   const [tryingOn, setTryingOn] = useState<ClosetItem | null>(null);
   const [isShopOpen, setIsShopOpen] = useState<boolean>(false);
   const [savedPlace] = useState<number | null>(() => GameEngine.loadSavedPlace());
+  // Troubleshooting readout, only with ?debug in the link.
+  const [debugStats, setDebugStats] = useState<ReturnType<GameEngine['getDebugStats']> | null>(null);
+  useEffect(() => {
+    if (!debugFlag('debug')) return;
+    const id = window.setInterval(() => {
+      if (engineRef.current) setDebugStats(engineRef.current.getDebugStats());
+    }, 250);
+    return () => window.clearInterval(id);
+  }, []);
+
   // Player profiles (each child on this device has their own progress).
   const [profiles, setProfiles] = useState<ProfilesState>(() => syncActiveProfileName());
   const primaryProfile = profiles.active === profiles.list[0].id;
@@ -739,6 +750,12 @@ export default function App() {
           miniGame={miniGame}
           onStartHideSeek={() => engineRef.current?.startHideAndSeek()}
         />
+      )}
+
+      {debugStats && (
+        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-[80] px-3 py-1.5 rounded-lg bg-black/75 text-[11px] leading-tight text-lime-300 font-mono pointer-events-none whitespace-pre">
+          {`fps ${debugStats.fps}  avg ${debugStats.avgMs}ms  worst ${debugStats.worstMs}ms  ${debugStats.gpu}\nsharpness ${debugStats.pixelRatio} (changed ${debugStats.resChanges}x)  calls ${debugStats.calls}\ncamera y ${debugStats.camY}  tilt ${debugStats.pitch}°  whiskers y ${debugStats.whiskersY}\n${window.location.search}`}
+        </div>
       )}
 
       {/* Learning moment question */}
