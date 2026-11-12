@@ -4,6 +4,7 @@ import { X, Cloud, CloudOff, LogOut, CheckCircle2, Share, Download } from 'lucid
 import { Difficulty, PaceMode, TreasureCounts } from '../game/engine';
 import { getInstallStatus, InstallStatus, onInstallChange, promptInstall } from '../game/install';
 import { SeasonSetting } from '../game/seasons';
+import { ProfilesState } from '../game/profiles';
 import { CHAPTERS } from '../game/worldGen';
 import { MAX_NAME_LENGTH } from '../game/profile';
 
@@ -65,6 +66,8 @@ interface GrownUpsModalProps {
   onSetSeason: (season: SeasonSetting) => void;
   learningOn: boolean;
   onSetLearning: (on: boolean) => void;
+  profiles: ProfilesState;
+  onRemoveProfile: (id: string) => void;
 }
 
 export const GrownUpsModal: React.FC<GrownUpsModalProps> = ({
@@ -93,7 +96,12 @@ export const GrownUpsModal: React.FC<GrownUpsModalProps> = ({
   onSetSeason,
   learningOn,
   onSetLearning,
+  profiles,
+  onRemoveProfile,
 }) => {
+  const [removing, setRemoving] = useState<string | null>(null);
+  const firstName = profiles.list[0].name || 'the first player';
+  const isFirst = profiles.active === profiles.list[0].id;
   const [nameDraft, setNameDraft] = useState(playerName);
   useEffect(() => {
     if (isOpen) setNameDraft(playerName);
@@ -136,6 +144,11 @@ export const GrownUpsModal: React.FC<GrownUpsModalProps> = ({
             <span>Save progress</span>
           </div>
 
+          {!isFirst && (
+            <p className="text-xs text-amber-200 leading-relaxed mb-2">
+              Cloud save is for {firstName}'s progress. This player's progress is saved on this device.
+            </p>
+          )}
           {!user ? (
             <>
               <p className="text-xs text-slate-300 leading-relaxed mb-3">
@@ -255,6 +268,44 @@ export const GrownUpsModal: React.FC<GrownUpsModalProps> = ({
             />
           </label>
         </section>
+
+        {/* Players on this device */}
+        {profiles.list.length > 1 && (
+          <section className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800 mb-3">
+            <div className="text-sm font-bold text-pink-200 mb-2">Players on this device</div>
+            <ul className="space-y-1.5">
+              {profiles.list.map((p, i) => (
+                <li key={p.id} className="flex items-center justify-between gap-2 text-sm">
+                  <span className="flex items-center gap-2 min-w-0">
+                    <span className="w-3.5 h-3.5 rounded-full shrink-0" style={{ background: p.color }} />
+                    <span className="font-semibold truncate">{p.name || 'New player'}</span>
+                    {p.id === profiles.active && <span className="text-[11px] text-emerald-300">playing now</span>}
+                    {i === 0 && <span className="text-[11px] text-sky-300">cloud save</span>}
+                  </span>
+                  {i > 0 && p.id !== profiles.active && (
+                    removing === p.id ? (
+                      <span className="flex items-center gap-1 shrink-0">
+                        <button onClick={() => { onRemoveProfile(p.id); setRemoving(null); }} className="px-2 py-1 rounded-lg bg-rose-500 text-white text-xs font-bold cursor-pointer">
+                          Remove
+                        </button>
+                        <button onClick={() => setRemoving(null)} className="px-2 py-1 rounded-lg bg-slate-700 text-xs font-bold cursor-pointer">
+                          Keep
+                        </button>
+                      </span>
+                    ) : (
+                      <button onClick={() => setRemoving(p.id)} className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 cursor-pointer shrink-0">
+                        Remove…
+                      </button>
+                    )
+                  )}
+                </li>
+              ))}
+            </ul>
+            <p className="text-[11px] text-slate-400 mt-2">
+              Removing a player deletes their stars and treasures on this device. Switch players on the title screen.
+            </p>
+          </section>
+        )}
 
         {/* Swim length */}
         <section className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800 mb-3">
