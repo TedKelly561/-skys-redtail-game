@@ -79,7 +79,7 @@ export class BabyFish {
     tailShape.quadraticCurveTo(-0.24, 0, -0.34, -0.24);
     tailShape.quadraticCurveTo(-0.22, -0.26, 0, 0);
     const tailGeo = new THREE.ShapeGeometry(tailShape);
-    tailGeo.rotateY(Math.PI / 2);
+    tailGeo.rotateY(-Math.PI / 2); // fan out behind the body (-Z), not forward into it
     const finGeo = new THREE.CircleGeometry(0.12, 12, 0, Math.PI);
     this.disposables.push(this.bodyMat, this.finMat, belly, white, black, sphere, tailGeo, finGeo);
 
