@@ -22,6 +22,7 @@ import { BushCats, CatTuning } from './cats';
 import { FishHouse, HouseView } from './house';
 import { BabyFish, BuddyLook } from './buddy';
 import { LearningEvent, LearningMoments, LearningPrompt } from './learning';
+import { debugFlag } from './debugFlags';
 import { SeasonEffects, SeasonSetting, isHolidayTime, loadSeasonSetting, patchSeasonal, resolveSeason, saveSeasonSetting } from './seasons';
 import { BubbleGeysers, Otter, TreasureDive, WaterfallSlide, dailyAllowance } from './lakeFun';
 import { Fireflies } from './fireflies';
@@ -299,7 +300,7 @@ export class GameEngine {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.15;
-    this.renderer.shadowMap.enabled = !this.isSoftwareGl;
+    this.renderer.shadowMap.enabled = !this.isSoftwareGl && !debugFlag('noshadow');
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.setSize(container.clientWidth, container.clientHeight);
     container.appendChild(this.renderer.domElement);
@@ -329,7 +330,7 @@ export class GameEngine {
 
     this.dirLight = new THREE.DirectionalLight(0xfff9e6, 2.2);
     this.dirLight.position.set(25, 48, 15);
-    this.dirLight.castShadow = !this.isSoftwareGl;
+    this.dirLight.castShadow = !this.isSoftwareGl && !debugFlag('noshadow');
     this.dirLight.shadow.mapSize.width = 1024;
     this.dirLight.shadow.mapSize.height = 1024;
     this.dirLight.shadow.camera.near = 1;
@@ -409,10 +410,12 @@ export class GameEngine {
     this.applyChapterLook(CHAPTERS[0], 0);
     this.setDifficulty(GameEngine.loadDifficulty());
     // Seasons: trees, grass and banks change color; leaves or snow fall.
-    patchSeasonal(this.forest.leafMaterial, 'leaf');
-    patchSeasonal(this.forest.solidMaterial, 'leaf'); // round tree crowns are solid blobs; trunks and rocks aren't green so they stay put
-    patchSeasonal(this.riverWorld.bankGrassInstancedMesh.material as THREE.Material, 'grass');
-    patchSeasonal(this.riverWorld.riverBedMaterial, 'ground');
+    if (!debugFlag('noseason')) patchSeasonal(this.forest.leafMaterial, 'leaf');
+    if (!debugFlag('noseason')) patchSeasonal(this.forest.solidMaterial, 'leaf'); // round tree crowns are solid blobs; trunks and rocks aren't green so they stay put
+    if (!debugFlag('noseason')) {
+      patchSeasonal(this.riverWorld.bankGrassInstancedMesh.material as THREE.Material, 'grass');
+      patchSeasonal(this.riverWorld.riverBedMaterial, 'ground');
+    }
     this.seasonFx = new SeasonEffects(this.scene);
     this.setSeasonSetting(loadSeasonSetting(), false);
     this.adaptiveResolution = new AdaptiveResolution(
@@ -876,12 +879,13 @@ export class GameEngine {
       }
 
       this.forest.update(dt);
-      this.updateLakeWorld(dt);
+      if (!debugFlag('nolakefx') || this.isFreeSwim) this.updateLakeWorld(dt);
       if (this.buddy.group.visible) this.buddy.update(dt, this.player.group);
       this.seasonFx.update(dt, this.camera.position);
       this.waterLook.uniforms.uTime.value += dt;
       this.streamer.update(dt, this.player.group.position);
-      this.adaptiveResolution.update(rawDt);
+      if (!debugFlag('fixedres')) this.adaptiveResolution.update(rawDt);
+      this.recordFrame(rawDt);
       this.sky.update(dt, this.camera.position);
       this.rainbow.update(dt);
       this.fireflies.update(
@@ -1246,6 +1250,7 @@ export class GameEngine {
     this.updateBadGuys(dt, isBoosting, level.chase === 'slow' ? speedCfg.base * 0.9 : speedCfg.boost * level.chase);
     this.updateMiniGames(dt, prevDistance, (speedCfg.max + speedCfg.boost) / 2);
     const canLearn =
+      !debugFlag('nolearn') &&
       !this.isFreeSwim && !this.hideSeek.active && this.playerDistance > 60 && this.playerDistance < 2150;
     for (const ev of this.learning.update(dt, this.playerDistance, this.playerLateral, canLearn, getPlayerName())) {
       this.handleLearning(ev);
@@ -1636,6 +1641,40 @@ export class GameEngine {
     }
   }
 
+  // ------------------------------------------------------------ Troubleshooting readout (?debug)
+  private frameTimes: number[] = [];
+  private lastPixelRatio = 0;
+  private pixelRatioChanges = 0;
+
+  private recordFrame(rawDt: number) {
+    this.frameTimes.push(rawDt * 1000);
+    if (this.frameTimes.length > 120) this.frameTimes.shift();
+    const pr = this.renderer.getPixelRatio();
+    if (this.lastPixelRatio && pr !== this.lastPixelRatio) this.pixelRatioChanges++;
+    this.lastPixelRatio = pr;
+  }
+
+  public getDebugStats() {
+    const t = this.frameTimes;
+    const avg = t.length ? t.reduce((a, b) => a + b, 0) / t.length : 0;
+    const worst = t.length ? Math.max(...t) : 0;
+    const cam = this.camera;
+    const dir = new THREE.Vector3();
+    cam.getWorldDirection(dir);
+    return {
+      fps: avg ? Math.round(1000 / avg) : 0,
+      avgMs: avg.toFixed(1),
+      worstMs: worst.toFixed(0),
+      pixelRatio: this.renderer.getPixelRatio().toFixed(2),
+      resChanges: this.pixelRatioChanges,
+      camY: cam.position.y.toFixed(2),
+      pitch: THREE.MathUtils.radToDeg(Math.asin(dir.y)).toFixed(1),
+      whiskersY: this.player.group.position.y.toFixed(2),
+      calls: this.renderer.info.render.calls,
+      gpu: this.isSoftwareGl ? 'software' : 'hardware',
+    };
+  }
+
   /** Learning moments on/off (grown-ups). */
   public setLearningEnabled(on: boolean) {
     this.learning.setEnabled(on);
@@ -1677,11 +1716,12 @@ export class GameEngine {
   public setSeasonSetting(setting: SeasonSetting, save = true) {
     this.seasonSetting = setting;
     if (save) saveSeasonSetting(setting);
-    this.seasonFx.setSeason(resolveSeason(setting), isHolidayTime());
+    this.seasonFx.setSeason(debugFlag('noseason') ? 'summer' : resolveSeason(setting), isHolidayTime());
   }
 
   /** Whiskers' baby fish buddy (null hides it). */
   public setBuddy(look: BuddyLook | null) {
+    if (debugFlag('nobuddy')) look = null;
     this.buddy.group.visible = !!look;
     this.buddyName = look?.name || '';
     if (look) this.buddy.setColor(look.color);

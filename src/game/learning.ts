@@ -164,6 +164,7 @@ export class LearningMoments {
         transparent: true,
         opacity: mode === 'color' ? 0.7 : 0.45,
         roughness: 0.15,
+        depthWrite: false, // so the letter inside isn't hidden by the bubble's front
       });
       const ball = new THREE.Mesh(this.sphere, mat);
       ball.scale.setScalar(1.5);
@@ -171,7 +172,8 @@ export class LearningMoments {
       let sprite: THREE.Sprite | null = null;
       if (mode === 'letter') {
         sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: letterTexture(label), depthWrite: false }));
-        sprite.scale.setScalar(2.0);
+        sprite.scale.setScalar(2.2);
+        sprite.renderOrder = 3; // drawn after the bubble and the water, so it always shows
         g.add(sprite);
       }
       this.place(dist, lateral, 0.6, g.position);
