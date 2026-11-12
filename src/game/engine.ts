@@ -53,6 +53,7 @@ const _vec3A = new THREE.Vector3();
 const NIGHT_FOG = new THREE.Color('#5b4f8f');
 const NIGHT_WATER = new THREE.Color('#1d3f6e');
 const PLACE_KEY = 'whiskers_last_place';
+const SHADOWS_OFF_KEY = 'whiskers_shadows_off';
 const RAINBOW_COLORS = ['#ff4d4d', '#ff9f1a', '#ffe14d', '#4dff88', '#4dc3ff', '#9b6bff', '#ff6bd6'];
 const CONFETTI = ['#ff4d8d', '#ffd23f', '#4de3ff', '#7dff6b', '#c58bff', '#ffffff'];
 const SPARKLE_COLORS: Record<string, string[]> = {
@@ -300,7 +301,7 @@ export class GameEngine {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.15;
-    this.renderer.shadowMap.enabled = !this.isSoftwareGl && !debugFlag('noshadow');
+    this.renderer.shadowMap.enabled = this.shadowsWanted();
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.setSize(container.clientWidth, container.clientHeight);
     container.appendChild(this.renderer.domElement);
@@ -330,7 +331,7 @@ export class GameEngine {
 
     this.dirLight = new THREE.DirectionalLight(0xfff9e6, 2.2);
     this.dirLight.position.set(25, 48, 15);
-    this.dirLight.castShadow = !this.isSoftwareGl && !debugFlag('noshadow');
+    this.dirLight.castShadow = this.renderer.shadowMap.enabled;
     this.dirLight.shadow.mapSize.width = 1024;
     this.dirLight.shadow.mapSize.height = 1024;
     this.dirLight.shadow.camera.near = 1;
@@ -898,6 +899,7 @@ export class GameEngine {
       this.seasonFx.update(dt, this.camera.position);
       this.waterLook.uniforms.uTime.value += dt;
       this.streamer.update(dt, this.player.group.position);
+      this.watchShadowCost(rawDt);
       if (!debugFlag('fixedres')) this.adaptiveResolution.update(rawDt);
       this.recordFrame(rawDt);
       this.sky.update(dt, this.camera.position);
@@ -1660,6 +1662,54 @@ export class GameEngine {
   private lastPixelRatio = 0;
   private pixelRatioChanges = 0;
 
+  /** Shadows are the costliest effect on some laptops; this device turned them off before. */
+  private shadowsWanted() {
+    const force = debugFlag('shadows');
+    try {
+      if (force) localStorage.removeItem(SHADOWS_OFF_KEY);
+      if (this.isSoftwareGl || debugFlag('noshadow')) return false;
+      return force || localStorage.getItem(SHADOWS_OFF_KEY) !== '1';
+    } catch {
+      return !this.isSoftwareGl;
+    }
+  }
+
+  private shadowWatch = { warmup: 4, total: 0, samples: 0, slowWindows: 0 };
+
+  /**
+   * If frames stay slow (under about 45 a second) with shadows on, turn them off: on some
+   * laptops they halve the frame rate, and uneven frames make the river look bumpy. The choice is
+   * remembered on this device. Add ?shadows to the address to bring them back.
+   */
+  private watchShadowCost(rawDt: number) {
+    if (!this.dirLight.castShadow || debugFlag('shadows')) return;
+    if (rawDt <= 0 || rawDt > 0.25) return; // ignore tab switches and loading hitches
+    const w = this.shadowWatch;
+    if (w.warmup > 0) {
+      w.warmup -= rawDt;
+      return;
+    }
+    w.total += rawDt;
+    w.samples++;
+    if (w.total < 3) return;
+    const avgMs = (w.total / w.samples) * 1000;
+    w.total = 0;
+    w.samples = 0;
+    w.slowWindows = avgMs > 22 ? w.slowWindows + 1 : 0;
+    if (w.slowWindows < 2) return;
+    this.dirLight.castShadow = false;
+    this.renderer.shadowMap.enabled = false;
+    this.dirLight.shadow.map?.dispose();
+    this.dirLight.shadow.map = null;
+    // Shadows were the slow part, so give full sharpness another chance.
+    this.adaptiveResolution.reset();
+    try {
+      localStorage.setItem(SHADOWS_OFF_KEY, '1');
+    } catch {
+      // ignore
+    }
+  }
+
   private recordFrame(rawDt: number) {
     this.frameTimes.push(rawDt * 1000);
     if (this.frameTimes.length > 120) this.frameTimes.shift();
@@ -1686,6 +1736,7 @@ export class GameEngine {
       whiskersY: this.player.group.position.y.toFixed(2),
       calls: this.renderer.info.render.calls,
       gpu: this.isSoftwareGl ? 'software' : 'hardware',
+      shadows: this.dirLight.castShadow ? 'shadows on' : 'shadows off',
     };
   }
 
