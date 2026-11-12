@@ -286,6 +286,81 @@ function kapokTree(parts: PartList, x: number, y: number, z: number, r: () => nu
   }
 }
 
+const MANGROVE_GREENS = ['#3fae4a', '#4cbb52', '#36a043', '#6cc84f', '#58b84a'];
+const MANGROVE_ROOTS = ['#7a5238', '#6b4a33', '#86603f', '#735a44'];
+
+/** One arching root: up and out from the stem, then down into the water like a spider leg. */
+function rootArc(from: THREE.Vector3, angle: number, reach: number, rise: number, footY: number, radius: number) {
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  const curve = new THREE.QuadraticBezierCurve3(
+    from,
+    new THREE.Vector3(from.x + c * reach * 0.45, from.y + rise, from.z + s * reach * 0.45),
+    new THREE.Vector3(from.x + c * reach, footY, from.z + s * reach)
+  );
+  return { geo: new THREE.TubeGeometry(curve, 6, radius, 4, false), mid: curve.getPoint(0.4) };
+}
+
+/**
+ * A red mangrove at the water's edge: mostly roots. A tangle of arching prop roots spreads out
+ * and down into the water from partway up a thin stem, under a bushy, bright green top.
+ * `k` scales the whole tree (young mangroves are small).
+ */
+function mangroveTree(parts: PartList, x: number, y: number, z: number, r: () => number, k = 1) {
+  const footY = -0.7 - y; // root tips reach into the water (relative to y)
+  const stemTop = (2.7 + r() * 0.5) * k;
+  const roots = 18 + Math.floor(r() * 6);
+  const rootColor = MANGROVE_ROOTS[Math.floor(r() * MANGROVE_ROOTS.length)];
+  const from = new THREE.Vector3();
+  for (let i = 0; i < roots; i++) {
+    const a = (i / roots) * Math.PI * 2 + r() * 0.6;
+    from.set(0, (0.8 + r() * 1.2) * k, 0);
+    const reach = (1.6 + r() * 1.6) * k;
+    const { geo, mid } = rootArc(from, a, reach, (0.35 + r() * 0.5) * k, footY, (0.06 + r() * 0.04) * k);
+    addPart(parts.solid, geo, compose(x, y, z), rootColor, y, 6, 0, r);
+    geo.dispose();
+    // Some roots branch again, dropping a second root farther out.
+    if (r() < 0.3) {
+      const b = rootArc(mid, a + (r() - 0.5) * 0.8, reach * 0.6, 0.2 * k, footY, 0.04 * k);
+      addPart(parts.solid, b.geo, compose(x, y, z), rootColor, y, 6, 0, r);
+      b.geo.dispose();
+    }
+  }
+  // Thin stem rising out of the tangle (no big trunk), splitting toward the crown.
+  const lean = (r() - 0.5) * 0.4 * k;
+  const leanZ = (r() - 0.5) * 0.4 * k;
+  const stem = trunkGeometry(stemTop - 0.8 * k, 0.15 * k, 0.1 * k, lean, leanZ);
+  addPart(parts.solid, stem, compose(x, y + 0.8 * k, z), rootColor, y, stemTop + 2, 0.4, r);
+  stem.dispose();
+  for (let i = 0; i < 2; i++) {
+    const a = r() * Math.PI * 2;
+    const br = trunkGeometry(1.4 * k, 0.08 * k, 0.05 * k, Math.cos(a) * 0.8 * k, Math.sin(a) * 0.8 * k);
+    addPart(parts.solid, br, compose(x + lean * 0.6, y + stemTop - 1.2 * k, z + leanZ * 0.6), rootColor, y, stemTop + 2, 0.6, r);
+    br.dispose();
+  }
+  // Bushy, rounded, bright green top.
+  const cx = x + lean;
+  const cz = z + leanZ;
+  const top = y + stemTop;
+  const blobs = 11 + Math.floor(r() * 4);
+  for (let i = 0; i < blobs; i++) {
+    const a = r() * Math.PI * 2;
+    const rr = (i === 0 ? 0 : 0.9 + r() * 1.3) * k;
+    const size = (i === 0 ? 1.4 : 0.8 + r() * 0.5) * k;
+    addPart(
+      parts.solid,
+      BLOB,
+      compose(cx + Math.cos(a) * rr, top + (r() - 0.45) * 1.2 * k, cz + Math.sin(a) * rr, 0, r() * 3, 0, size, size * 0.8, size),
+      MANGROVE_GREENS[Math.floor(r() * MANGROVE_GREENS.length)],
+      y,
+      stemTop + 2,
+      0.8,
+      r,
+      0.12
+    );
+  }
+}
+
 function bush(parts: PartList, x: number, y: number, z: number, r: () => number) {
   const n = 3 + Math.floor(r() * 2);
   for (let i = 0; i < n; i++) {
@@ -374,9 +449,26 @@ export class Forest {
           };
         };
 
+        // Golden Canopy Mangroves: mangroves stand right at the water's edge on their stilt
+        // roots; palm trees grow farther back (see the back row below).
+        const mangroves = dist >= 1680 && dist < 2350;
+        if (mangroves) {
+          // A grown mangrove right at the waterline, with a young one standing in the shallows
+          // in front of it every other spot.
+          const grown = [{ shift: r() * 4, out: 0.6 + r() * 1.0, k: 0.95 + r() * 0.3 }];
+          if (dist % 30 === 12) grown.push({ shift: 7 + r() * 3, out: -1.6 - r() * 0.8, k: 0.5 + r() * 0.15 });
+          for (const t of grown) {
+            const d = dist + t.shift;
+            const p2 = getRiverPath(d);
+            const lat = waterlineLateral(d, side, p2.width * 0.5) + side * t.out;
+            const y = getRiverBedElevationAt(d, lat);
+            mangroveTree(parts, p2.position.x + p2.normal.x * lat, Math.max(-0.4, y), p2.position.z + p2.normal.z * lat, r, t.k);
+          }
+        }
+
         // Front row near the water.
         const front = place(side * (halfW + 1.6 + r() * 1.4));
-        if (front.y > 0.15) {
+        if (!mangroves && front.y > 0.15) {
           const kind = r();
           if (kind < 0.3) {
             palmTree(parts, front.x, front.y, front.z, r, -normal.x * side, -normal.z * side);
@@ -386,7 +478,10 @@ export class Forest {
         }
 
         // Back row: taller trees every other spot.
-        if (dist % 30 === 12) {
+        if (mangroves) {
+          const back = place(side * (halfW + 8 + r() * 5), 3.5);
+          if (back.y > 0.15) palmTree(parts, back.x, back.y, back.z, r, -normal.x * side, -normal.z * side);
+        } else if (dist % 30 === 12) {
           const back = place(side * (halfW + 7 + r() * 5), 3.5);
           if (r() < 0.45) kapokTree(parts, back.x, back.y, back.z, r);
           else roundTree(parts, back.x, back.y, back.z, r, r() < 0.3);

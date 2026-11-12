@@ -70,7 +70,9 @@ function fragmentFor(kind: SurfaceKind) {
         : '';
   const snowUp = kind === 'grass' ? '0.0' : kind === 'leaf' ? '0.2' : '0.45';
   return `
-  if (uSeason > 0.5 && uSeason < 1.5) {
+  // The mangrove stretch of the river (z from -2350 to -1680) stays green in autumn.
+  float evergreen = step(-2350.0, vSeasonPos.z) * step(vSeasonPos.z, -1680.0);
+  if (uSeason > 0.5 && uSeason < 1.5 && evergreen < 0.5) {
     ${green}
     ${autumn}
   } else if (uSeason > 1.5) {
