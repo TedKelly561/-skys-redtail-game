@@ -69,9 +69,11 @@ function fragmentFor(kind: SurfaceKind) {
         ? `diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.78, 0.62, 0.30) * bright, greenness * 0.7);`
         : '';
   const snowUp = kind === 'grass' ? '0.0' : kind === 'leaf' ? '0.2' : '0.45';
+  // Lily pads float right at the water (y about 0.04), so low leaves stay green.
+  const lowLeaf = kind === 'leaf' ? 'step(vSeasonPos.y, 0.3)' : '0.0';
   return `
-  // The mangrove stretch of the river (z from -2350 to -1680) stays green in autumn.
-  float evergreen = step(-2350.0, vSeasonPos.z) * step(vSeasonPos.z, -1680.0);
+  // The mangrove stretch of the river (z from -2350 to -1680) and lily pads stay green in autumn.
+  float evergreen = max(step(-2350.0, vSeasonPos.z) * step(vSeasonPos.z, -1680.0), ${lowLeaf});
   if (uSeason > 0.5 && uSeason < 1.5 && evergreen < 0.5) {
     ${green}
     ${autumn}

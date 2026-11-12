@@ -862,11 +862,25 @@ export class GameEngine {
   }
 
   private startLoop() {
-    const tick = () => {
+    let lastStamp = -1;
+    let smoothDt = 1 / 60;
+    const tick = (stamp?: number) => {
       if (!this.isRunning) return;
 
-      const rawDt = this.clock.getDelta();
-      const dt = Math.min(rawDt, 0.05);
+      // Frame time from the browser's own frame clock (steadier than reading the time inside
+      // the frame), smoothed a little so a slightly late frame doesn't make the river jump.
+      // On slower or battery-saving laptops (30 frames a second) this keeps the glide even.
+      let rawDt: number;
+      if (typeof stamp === 'number' && lastStamp >= 0) {
+        rawDt = Math.max(0, (stamp - lastStamp) / 1000);
+        this.clock.getDelta(); // keep the clock in step
+      } else {
+        rawDt = this.clock.getDelta();
+      }
+      if (typeof stamp === 'number') lastStamp = stamp;
+      if (rawDt > 0.25) smoothDt = 1 / 60; // back from a pause or another tab: start fresh
+      else smoothDt += (rawDt - smoothDt) * 0.2;
+      const dt = Math.min(rawDt > 0.25 ? rawDt : smoothDt, 0.05);
 
       if (this.gameState === 'playing') {
         this.elapsedSeconds += dt;
