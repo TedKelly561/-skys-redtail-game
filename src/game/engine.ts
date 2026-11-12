@@ -1782,7 +1782,7 @@ export class GameEngine {
         if (this.elapsedSeconds - this.lastBadGuyTip > 12) {
           this.lastBadGuyTip = this.elapsedSeconds;
           this.callbacks.onTipMessage(
-            ev.by === 'caiman' ? 'Shh! A caiman is sleeping. Swim around it!' : 'Grumpy piranhas! Zoom away!'
+            ev.by === 'caiman' ? 'Shh! A croc is sleeping. Swim around it!' : 'Grumpy piranhas! Zoom away!'
           );
         }
       } else if (ev.type === 'bump') {
@@ -1795,7 +1795,7 @@ export class GameEngine {
         this.loseSnack(ev.by);
       } else {
         this.lastBadGuyTip = this.elapsedSeconds;
-        this.callbacks.onTipMessage(ev.by === 'caiman' ? 'Phew! Too slow, caiman!' : 'You got away!');
+        this.callbacks.onTipMessage(ev.by === 'caiman' ? 'Phew! Too slow, croc!' : 'You got away!');
         this.sparkles.burst(this.player.group.position, ['#ffffff', '#bff6ff'], 12, 2);
       }
     }
@@ -1835,7 +1835,7 @@ export class GameEngine {
       // Gentle: just a bump and a friendly reminder.
       this.callbacks.onTipMessage(
         by === 'caiman'
-          ? 'Boing! Swim around the caiman!'
+          ? 'Boing! Swim around the croc!'
           : by === 'cat'
             ? 'Boing! Stay away from the bushes!'
             : 'Boing! Zoom away from the piranhas!'
@@ -1847,7 +1847,7 @@ export class GameEngine {
     sound.playChomp();
     if (by === 'caiman') {
       this.callbacks.onTreasurePopup('Snap! It took a snack!', 0, '🐊');
-      narrator.say('Oh no! The caiman took a snack!', true);
+      narrator.say('Oh no! The croc took a snack!', true);
     } else if (by === 'cat') {
       this.callbacks.onTreasurePopup('Swipe! The cat took a snack!', 0, '🐈‍⬛');
       narrator.say('Oh no! The cat took a snack!', true);
