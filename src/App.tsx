@@ -754,7 +754,7 @@ export default function App() {
 
       {debugStats && (
         <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-[80] px-3 py-1.5 rounded-lg bg-black/75 text-[11px] leading-tight text-lime-300 font-mono pointer-events-none whitespace-pre">
-          {`fps ${debugStats.fps}  avg ${debugStats.avgMs}ms  worst ${debugStats.worstMs}ms  ${debugStats.gpu}\nsharpness ${debugStats.pixelRatio} (changed ${debugStats.resChanges}x)  calls ${debugStats.calls}\ncamera y ${debugStats.camY}  tilt ${debugStats.pitch}°  whiskers y ${debugStats.whiskersY}\n${window.location.search}`}
+          {`fps ${debugStats.fps}  avg ${debugStats.avgMs}ms  worst ${debugStats.worstMs}ms  ${debugStats.gpu}  ${debugStats.shadows}\nsharpness ${debugStats.pixelRatio} (changed ${debugStats.resChanges}x)  calls ${debugStats.calls}\ncamera y ${debugStats.camY}  tilt ${debugStats.pitch}°  whiskers y ${debugStats.whiskersY}\n${window.location.search}`}
         </div>
       )}
 
