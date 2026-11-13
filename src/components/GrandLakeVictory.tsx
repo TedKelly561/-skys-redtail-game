@@ -7,6 +7,10 @@ interface GrandLakeVictoryProps {
   playerName: string;
   onFreeSwim: () => void;
   onRestart: () => void;
+  /** Show the panel right away (the storybook was just read). */
+  instant?: boolean;
+  /** Open the storybook of this trip. */
+  onOpenStory?: () => void;
 }
 
 export const GrandLakeVictory: React.FC<GrandLakeVictoryProps> = ({
@@ -14,10 +18,13 @@ export const GrandLakeVictory: React.FC<GrandLakeVictoryProps> = ({
   playerName,
   onFreeSwim,
   onRestart,
+  instant = false,
+  onOpenStory,
 }) => {
   // Let the celebration (family, rainbow, sparkles) play for a moment before the panel.
-  const [showPanel, setShowPanel] = useState(false);
+  const [showPanel, setShowPanel] = useState(instant);
   useEffect(() => {
+    if (instant) return;
     const t = window.setTimeout(() => setShowPanel(true), 2600);
     return () => window.clearTimeout(t);
   }, []);
@@ -48,6 +55,16 @@ export const GrandLakeVictory: React.FC<GrandLakeVictoryProps> = ({
           <span className="text-2xl">🐟</span>
           <span>Swim with family</span>
         </button>
+
+        {onOpenStory && (
+          <button
+            onClick={onOpenStory}
+            className="mt-3 w-full py-3 rounded-2xl bg-amber-400 hover:bg-amber-300 text-amber-950 text-base font-black flex items-center justify-center gap-2 transition active:scale-95 cursor-pointer"
+          >
+            <span className="text-xl">📚</span>
+            <span>Our storybook</span>
+          </button>
+        )}
 
         <button
           onClick={onRestart}

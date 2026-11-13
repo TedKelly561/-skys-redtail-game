@@ -29,6 +29,7 @@ import { Fireflies } from './fireflies';
 import { music } from './music';
 import { DolphinRace, HideAndSeek, RaceProgress } from './minigames';
 import { GhostRace } from './ghostRace';
+import { MomentKind, Trip, loadTrip, newTrip, saveTrip } from './storybook';
 import { FIN_COLORS, Outfit, buildAccessory, loadCloset } from './closet';
 import { WaterLook, addCaustics, createShorelineFoam, createWaterLook } from './water';
 import { AdaptiveResolution, DistanceStreamer, downgradePhysicalMaterials } from './perf';
@@ -215,6 +216,9 @@ export class GameEngine {
   private fireflies!: Fireflies;
   private race!: DolphinRace;
   private ghostRace!: GhostRace;
+  /** This swim, written down for the storybook. */
+  private trip: Trip = loadTrip() || newTrip(0, 0);
+  private tripSaveTimer = 0;
   private hideSeek = new HideAndSeek();
   private hideSeekInviteTimer = 0;
   private lastMiniKey = '';
@@ -682,7 +686,13 @@ export class GameEngine {
 
   public continueGame() {
     const saved = GameEngine.loadSavedPlace();
+    // Continuing the same journey: keep writing the same story.
+    const story = loadTrip();
     this.startGame(0);
+    if (story && !story.reachedLake && Date.now() - story.startedAt < 3 * 24 * 3600 * 1000) {
+      this.trip = story;
+      this.saveTripNow();
+    }
     if (saved !== null) {
       this.playerDistance = Math.max(15, saved - 10);
       this.updateChapter(true);
@@ -691,6 +701,8 @@ export class GameEngine {
   }
 
   public startGame(startAtChapterIndex: number = 0) {
+    this.trip = newTrip(this.counts.stars, this.counts.treasuresTotal);
+    this.saveTripNow();
     this.isFreeSwim = false;
     this.riverWorld.setFamilyFollow(null);
     this.player.setRainbow(false);
@@ -828,6 +840,10 @@ export class GameEngine {
   }
 
   private meetFriend(kind: FriendKind, announce: boolean) {
+    if (!this.trip.friends.includes(kind)) {
+      this.trip.friends.push(kind);
+      this.saveTripNow();
+    }
     if (this.metFriends.has(kind)) return;
     this.metFriends.add(kind);
     saveMetFriends(this.metFriends);
@@ -924,6 +940,10 @@ export class GameEngine {
       const dt = Math.min(rawDt > 0.25 ? rawDt : smoothDt, 0.05);
 
       if (this.gameState === 'playing') {
+        this.trip.seconds += dt;
+        this.trip.distance = Math.max(this.trip.distance, this.isFreeSwim ? 0 : this.playerDistance);
+        this.tripSaveTimer += dt;
+        if (this.tripSaveTimer > 5) this.saveTripNow();
         this.elapsedSeconds += dt;
         this.callbacks.onTimeChange(Math.floor(this.elapsedSeconds));
         this.updateGame(dt);
@@ -1855,6 +1875,7 @@ export class GameEngine {
       narrator.say(ev.say, true);
     } else if (ev.type === 'result') {
       if (ev.correct) {
+        this.addMoment('learn');
         this.rewardStars(2, 10);
         sound.playMissionComplete();
         this.sparkles.burst(ev.at, CONFETTI, 30, 3.5, 1.4);
@@ -1884,6 +1905,24 @@ export class GameEngine {
     if (look) this.buddy.setColor(look.color);
   }
 
+  private addMoment(kind: MomentKind) {
+    this.trip.moments[kind] = (this.trip.moments[kind] || 0) + 1;
+    this.saveTripNow();
+  }
+
+  private saveTripNow() {
+    this.tripSaveTimer = 0;
+    this.trip.stars = this.counts.stars;
+    this.trip.treasures = this.counts.treasuresTotal;
+    saveTrip(this.trip);
+  }
+
+  /** The current (or last) swim for the storybook. */
+  public getTrip(): Trip {
+    this.saveTripNow();
+    return JSON.parse(JSON.stringify(this.trip));
+  }
+
   private rewardStars(stars: number, points: number) {
     if (stars > 0) this.buddy.celebrate();
     this.counts.stars += stars;
@@ -1899,12 +1938,14 @@ export class GameEngine {
       sound.playMilestone();
       narrator.say('Ready, set, go! Race the dolphin!', true);
     } else if (r.event === 'win') {
+      this.addMoment('dolphinWin');
       this.rewardStars(10, 50);
       sound.playMissionComplete();
       this.callbacks.onTreasurePopup('You won the race!', 10, '🏆');
       narrator.say(cheer('You won the race'), true);
       this.sparkles.burst(this.player.group.position, RAINBOW_COLORS, 50, 4.5, 1.5);
     } else if (r.event === 'lose') {
+      this.addMoment('dolphinRace');
       this.rewardStars(2, 10);
       this.callbacks.onTreasurePopup('The dolphin won! Great try!', 2, '🐬');
       narrator.say('The dolphin won! Great try!', true);
@@ -1915,6 +1956,7 @@ export class GameEngine {
       if (ev === 'near') {
         this.callbacks.onTipMessage("You're getting close!");
       } else if (ev === 'found') {
+        this.addMoment('pip');
         this.rewardStars(5, 25);
         sound.playMissionComplete();
         this.callbacks.onTreasurePopup('You found Pip!', 5, '🙈');
@@ -1942,6 +1984,8 @@ export class GameEngine {
       this.callbacks.onTipMessage(msg);
       narrator.say(g.event.rival && !g.event.own ? `Ready, set, go! Race ${g.event.rival}!` : 'Ready, set, go!', true);
     } else if (g.event?.type === 'finish') {
+      if (g.event.rival && !g.event.own) this.trip.ghostRival = g.event.rival;
+      this.addMoment(g.event.won ? 'ghostWin' : 'ghostRace');
       const secs = Math.round(g.event.time);
       if (!g.event.rival) {
         this.rewardStars(5, 25);
@@ -1989,6 +2033,7 @@ export class GameEngine {
         }
         this.loseSnack(ev.by);
       } else {
+        this.addMoment(ev.by === 'caiman' ? 'croc' : 'piranhas');
         this.lastBadGuyTip = this.elapsedSeconds;
         this.callbacks.onTipMessage(ev.by === 'caiman' ? 'Phew! Too slow, croc!' : 'You got away!');
         this.sparkles.burst(this.player.group.position, ['#ffffff', '#bff6ff'], 12, 2);
@@ -2011,6 +2056,7 @@ export class GameEngine {
         this.bump(ev.at);
         this.loseSnack('cat');
       } else if (ev.type === 'splash') {
+        this.addMoment('cat');
         sound.playSplash();
         window.setTimeout(() => sound.playMeow(true), 450);
         this.sparkles.burst(ev.at, ['#ffffff', '#bff6ff', '#7fd8ff'], 26, 4.5, 2.2);
@@ -2122,6 +2168,7 @@ export class GameEngine {
       this.counts.totalPoints += 60;
       sound.playCollectTreasure('lost_trinket');
       sound.playMilestone();
+      this.addMoment('chest');
       this.callbacks.onTreasurePopup('Treasure chest!', 60, '🎁');
       this.sparkles.burst(this.player.group.position, ['#ff4d8d', '#4de3ff', '#7dff6b', '#c58bff', '#ffd84d'], 50, 4.2, 1.5);
       narrator.say(cheer('You found a treasure chest'), true);
@@ -2222,6 +2269,8 @@ export class GameEngine {
   }
 
   private triggerGrandLakeCelebration() {
+    this.trip.reachedLake = true;
+    this.saveTripNow();
     this.savePlace(null); // journey finished: next time starts fresh
     try {
       localStorage.setItem(LAKE_KEY, 'true');

@@ -20,6 +20,8 @@ import { FishHouseRoom } from './components/FishHouseRoom';
 import { HouseItem, HouseState, HouseView, loadHouse, saveHouse } from './game/house';
 import { BuddyLook, loadBuddy, saveBuddy } from './game/buddy';
 import { Photo, framePhoto, loadAlbum, saveAlbum } from './game/photos';
+import { Trip, loadTrip } from './game/storybook';
+import { Storybook } from './components/Storybook';
 import { SeasonSetting, loadSeasonSetting } from './game/seasons';
 import { LearningPrompt, loadLearningEnabled } from './game/learning';
 import { LearningCard } from './components/LearningCard';
@@ -135,6 +137,40 @@ export default function App() {
   const [lakeUnlocked, setLakeUnlocked] = useState<boolean>(() => GameEngine.isLakeUnlocked());
   useEffect(() => {
     if (gameState === 'victory') setLakeUnlocked(true);
+  }, [gameState]);
+
+  // Storybook of the trip: pops up at the Grand Lake, and opens from the title or pause menu.
+  const [story, setStory] = useState<{ trip: Trip; finished: boolean } | null>(null);
+  const [storyShownAtLake, setStoryShownAtLake] = useState(false);
+  const [hasStory, setHasStory] = useState<boolean>(() => (loadTrip()?.distance ?? 0) > 0);
+  const openStory = (finished?: boolean) => {
+    const engine = engineRef.current;
+    const trip = engine ? engine.getTrip() : loadTrip();
+    if (!trip) return;
+    if (engine?.gameState === 'playing') engine.pauseGame();
+    if (engine && Object.keys(stickers).length === 0) setStickers(engine.drawFriendStickers());
+    setPhotos(loadAlbum());
+    setStory({ trip, finished: finished ?? trip.reachedLake });
+  };
+  const closeStory = () => {
+    setStory(null);
+    setHasStory(true);
+  };
+  useEffect(() => {
+    if (gameState !== 'victory') {
+      setStoryShownAtLake(false);
+      return;
+    }
+    // After the family celebration, open the book (only when the river was actually swum).
+    const t = window.setTimeout(() => {
+      const trip = engineRef.current?.getTrip();
+      if (trip && trip.reachedLake && trip.distance > 0) {
+        setStoryShownAtLake(true);
+        openStory(true);
+      }
+    }, 2600);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState]);
   const continueChapter =
     savedPlace === null ? null : [...CHAPTERS].reverse().find((c) => savedPlace >= c.startDist) ?? null;
@@ -743,6 +779,8 @@ export default function App() {
           onSwitchProfile={(id) => switchProfile(id)}
           onAddProfile={() => addProfile()}
           photoCount={photos.length}
+          hasStory={hasStory}
+          onOpenStory={() => openStory()}
           onOpenPhotos={() => setAlbumOpen(true)}
           buddy={buddy}
           askForBuddy={!buddy && !buddyLater && !askForName}
@@ -842,6 +880,7 @@ export default function App() {
       {/* Pause Menu Modal */}
       {gameState === 'paused' && !isShopOpen && !photoShot && (
         <PauseMenu
+          onOpenStory={() => openStory(false)}
           onResume={handleResume}
           onRestart={handleRestart}
           onSelectChapter={handleSelectChapter}
@@ -854,12 +893,25 @@ export default function App() {
       )}
 
       {/* Grand Lake Victory Celebration Modal */}
-      {gameState === 'victory' && (
+      {gameState === 'victory' && !story && (
         <GrandLakeVictory
           counts={shownCounts}
           playerName={playerName}
           onFreeSwim={handleFreeSwim}
           onRestart={handleRestart}
+          instant={storyShownAtLake}
+          onOpenStory={hasStory || storyShownAtLake ? () => openStory(true) : undefined}
+        />
+      )}
+
+      {story && (
+        <Storybook
+          trip={story.trip}
+          playerName={playerName}
+          stickers={stickers}
+          photos={photos}
+          finished={story.finished}
+          onClose={closeStory}
         />
       )}
 
