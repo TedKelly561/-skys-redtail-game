@@ -15,6 +15,9 @@ export const RACE_FINISH = 2340;
 export interface RaceProgress {
   whiskers: number;
   dolphin: number;
+  /** Who Whiskers is racing, for the race bar: the dolphin when not set, nobody when 'none'. */
+  rivalIcon?: string;
+  rivalLabel?: string;
 }
 
 function checkerTexture(): THREE.CanvasTexture {
@@ -33,6 +36,46 @@ function checkerTexture(): THREE.CanvasTexture {
   return t;
 }
 
+/** Green start buoys and checkered finish buoys on both sides of the river. Returns what to dispose. */
+export function addRaceGates(group: THREE.Group, start: number, finish: number, halfWidth = 8): { dispose: () => void }[] {
+  const red = new THREE.MeshStandardMaterial({ color: '#ff4a3d', roughness: 0.45 });
+  const white = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.45 });
+  const pole = new THREE.MeshStandardMaterial({ color: '#555b66', roughness: 0.6 });
+  const green = new THREE.MeshStandardMaterial({ color: '#2ecc71', roughness: 0.5, side: THREE.DoubleSide });
+  const checker = new THREE.MeshStandardMaterial({ map: checkerTexture(), roughness: 0.6, side: THREE.DoubleSide });
+  const cyl = new THREE.CylinderGeometry(0.55, 0.65, 0.45, 18);
+  const top = new THREE.SphereGeometry(0.35, 16, 10);
+  const stick = new THREE.CylinderGeometry(0.04, 0.04, 1.8, 8);
+  const flag = new THREE.PlaneGeometry(0.9, 0.6);
+
+  const buoy = (dist: number, lateral: number, flagMat: THREE.Material) => {
+    const { position, normal } = getRiverPath(dist);
+    const b = new THREE.Group();
+    for (let k = 0; k < 3; k++) {
+      const m = new THREE.Mesh(cyl, k % 2 === 0 ? red : white);
+      m.position.y = -0.35 + k * 0.42;
+      m.scale.setScalar(1 - k * 0.12);
+      b.add(m);
+    }
+    const t = new THREE.Mesh(top, red);
+    t.position.y = 0.75;
+    b.add(t);
+    const s = new THREE.Mesh(stick, pole);
+    s.position.y = 1.7;
+    b.add(s);
+    const f = new THREE.Mesh(flag, flagMat);
+    f.position.set(0.45, 2.3, 0);
+    b.add(f);
+    b.position.set(position.x + normal.x * lateral, 0, position.z + normal.z * lateral);
+    group.add(b);
+  };
+  for (const side of [-1, 1]) {
+    buoy(start, side * halfWidth, green);
+    buoy(finish, side * halfWidth, checker);
+  }
+  return [red, white, pole, green, checker, checker.map!, cyl, top, stick, flag];
+}
+
 export class DolphinRace {
   public group = new THREE.Group();
   public state: 'waiting' | 'racing' | 'done' = 'waiting';
@@ -46,42 +89,7 @@ export class DolphinRace {
 
   constructor(scene: THREE.Scene, template: { group: THREE.Group; tailFluke: THREE.Mesh }) {
     scene.add(this.group);
-    const red = new THREE.MeshStandardMaterial({ color: '#ff4a3d', roughness: 0.45 });
-    const white = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.45 });
-    const pole = new THREE.MeshStandardMaterial({ color: '#555b66', roughness: 0.6 });
-    const green = new THREE.MeshStandardMaterial({ color: '#2ecc71', roughness: 0.5, side: THREE.DoubleSide });
-    const checker = new THREE.MeshStandardMaterial({ map: checkerTexture(), roughness: 0.6, side: THREE.DoubleSide });
-    const cyl = new THREE.CylinderGeometry(0.55, 0.65, 0.45, 18);
-    const top = new THREE.SphereGeometry(0.35, 16, 10);
-    const stick = new THREE.CylinderGeometry(0.04, 0.04, 1.8, 8);
-    const flag = new THREE.PlaneGeometry(0.9, 0.6);
-    this.disposables.push(red, white, pole, green, checker, cyl, top, stick, flag);
-
-    const buoy = (dist: number, lateral: number, flagMat: THREE.Material) => {
-      const { position, normal } = getRiverPath(dist);
-      const b = new THREE.Group();
-      for (let k = 0; k < 3; k++) {
-        const m = new THREE.Mesh(cyl, k % 2 === 0 ? red : white);
-        m.position.y = -0.35 + k * 0.42;
-        m.scale.setScalar(1 - k * 0.12);
-        b.add(m);
-      }
-      const t = new THREE.Mesh(top, red);
-      t.position.y = 0.75;
-      b.add(t);
-      const s = new THREE.Mesh(stick, pole);
-      s.position.y = 1.7;
-      b.add(s);
-      const f = new THREE.Mesh(flag, flagMat);
-      f.position.set(0.45, 2.3, 0);
-      b.add(f);
-      b.position.set(position.x + normal.x * lateral, 0, position.z + normal.z * lateral);
-      this.group.add(b);
-    };
-    for (const side of [-1, 1]) {
-      buoy(RACE_START, side * 8, green);
-      buoy(RACE_FINISH, side * 8, checker);
-    }
+    this.disposables.push(...addRaceGates(this.group, RACE_START, RACE_FINISH));
 
     // The racing dolphin is a copy of one of the river's pink dolphins.
     const flukeIndex = template.group.children.indexOf(template.tailFluke);

@@ -28,6 +28,7 @@ import { BubbleGeysers, Otter, TreasureDive, WaterfallSlide, dailyAllowance } fr
 import { Fireflies } from './fireflies';
 import { music } from './music';
 import { DolphinRace, HideAndSeek, RaceProgress } from './minigames';
+import { GhostRace } from './ghostRace';
 import { FIN_COLORS, Outfit, buildAccessory, loadCloset } from './closet';
 import { WaterLook, addCaustics, createShorelineFoam, createWaterLook } from './water';
 import { AdaptiveResolution, DistanceStreamer, downgradePhysicalMaterials } from './perf';
@@ -133,6 +134,8 @@ const DIFFICULTY: Record<
     zoomWake: number;
     /** Meters a croc lunges toward Whiskers when it wakes (0 = snaps in place). */
     lunge: number;
+    /** Chance a croc that missed follows Whiskers for a few seconds. */
+    stalk: number;
     notice: number;
     chaseTime: number;
     chase: 'slow' | number;
@@ -142,9 +145,9 @@ const DIFFICULTY: Record<
     extras: boolean;
   }
 > = {
-  gentle: { wake: 2.0, zoomWake: 2.6, lunge: 0, notice: 10, chaseTime: 2, chase: 'slow', snack: 0, cat: { trigger: 4.5, crouch: 0.9, lead: 0.15 }, extras: false },
-  normal: { wake: 2.6, zoomWake: 4.2, lunge: 0, notice: 14, chaseTime: 3.5, chase: 0.8, snack: 15, cat: { trigger: 5.5, crouch: 0.6, lead: 0.5 }, extras: false },
-  tricky: { wake: 3.6, zoomWake: 5.5, lunge: 2.6, notice: 18, chaseTime: 5, chase: 0.9, snack: 20, cat: { trigger: 8, crouch: 0.3, lead: 1 }, extras: true },
+  gentle: { wake: 2.0, zoomWake: 2.6, lunge: 0, stalk: 0, notice: 10, chaseTime: 2, chase: 'slow', snack: 0, cat: { trigger: 4.5, crouch: 0.9, lead: 0.15 }, extras: false },
+  normal: { wake: 2.6, zoomWake: 4.2, lunge: 0, stalk: 0, notice: 14, chaseTime: 3.5, chase: 0.8, snack: 15, cat: { trigger: 5.5, crouch: 0.6, lead: 0.5 }, extras: false },
+  tricky: { wake: 3.6, zoomWake: 5.5, lunge: 2.6, stalk: 0.5, notice: 18, chaseTime: 5, chase: 0.9, snack: 20, cat: { trigger: 8, crouch: 0.3, lead: 1 }, extras: true },
 };
 
 export interface MiniGameInfo {
@@ -211,6 +214,7 @@ export class GameEngine {
   public night: boolean = false;
   private fireflies!: Fireflies;
   private race!: DolphinRace;
+  private ghostRace!: GhostRace;
   private hideSeek = new HideAndSeek();
   private hideSeekInviteTimer = 0;
   private lastMiniKey = '';
@@ -398,6 +402,7 @@ export class GameEngine {
     this.riverWorld.friendSpots.push({ kind: 'otter', object: this.otter.body });
     this.fireflies = new Fireflies(this.scene);
     this.race = new DolphinRace(this.scene, this.riverWorld.dolphins[0]);
+    this.ghostRace = new GhostRace(this.scene);
     try {
       this.night = localStorage.getItem('whiskers_night') === 'true';
     } catch {
@@ -438,6 +443,7 @@ export class GameEngine {
     this.streamer.add(this.otter.group, this.scene, 200);
     this.streamer.add(this.falls.group, this.scene, 240);
     this.streamer.addChildrenOf(this.race.group, 170);
+    this.streamer.addChildrenOf(this.ghostRace.group, 170);
     this.applyOutfit(loadCloset().outfit);
     this.applyChapterLook(CHAPTERS[0], 0);
     this.setDifficulty(GameEngine.loadDifficulty());
@@ -604,7 +610,7 @@ export class GameEngine {
   public setDifficulty(level: Difficulty) {
     this.difficulty = level;
     const t = DIFFICULTY[level];
-    this.badGuys.tuning = { wake: t.wake, zoomWake: t.zoomWake, lunge: t.lunge, notice: t.notice, chaseTime: t.chaseTime };
+    this.badGuys.tuning = { wake: t.wake, zoomWake: t.zoomWake, lunge: t.lunge, stalk: t.stalk, notice: t.notice, chaseTime: t.chaseTime };
     this.badGuys.setExtras(t.extras);
     this.cats.tuning = t.cat;
     this.cats.setExtras(t.extras);
@@ -698,6 +704,7 @@ export class GameEngine {
     this.learning.reset();
     this.callbacks.onLearningPrompt(null);
     this.race.reset();
+    this.ghostRace.reset();
     this.hideSeek.stop(this.riverWorld);
     this.hideSeekInviteTimer = 0;
     this.emitMiniGame(null);
@@ -1467,7 +1474,14 @@ export class GameEngine {
     const info: MiniGameInfo = {
       canHideSeek: this.isFreeSwim && !this.hideSeek.active,
       hideSeekActive: this.hideSeek.active,
-      race: race ? { whiskers: Math.round(race.whiskers * 50) / 50, dolphin: Math.round(race.dolphin * 50) / 50 } : null,
+      race: race
+        ? {
+            whiskers: Math.round(race.whiskers * 50) / 50,
+            dolphin: Math.round(race.dolphin * 50) / 50,
+            rivalIcon: race.rivalIcon,
+            rivalLabel: race.rivalLabel,
+          }
+        : null,
       pearls: this.isFreeSwim ? { found: this.dive.foundCount, total: this.dive.total } : null,
     };
     const key = JSON.stringify(info);
@@ -1914,7 +1928,41 @@ export class GameEngine {
         }
       }
     }
-    this.emitMiniGame(r.progress);
+    // Ghost race near the start of the river (never at the same time as the dolphin race).
+    const g = this.isFreeSwim
+      ? { event: null, progress: null }
+      : this.ghostRace.update(dt, prevDistance, this.playerDistance, this.playerLateral, this.playerDepth, this.player.group);
+    if (g.event?.type === 'start') {
+      sound.playMilestone();
+      const msg = g.event.rival
+        ? g.event.own
+          ? 'Race your best time to the checkered flags! Zoom!'
+          : `Race ${g.event.rival}'s ghost to the checkered flags! Zoom!`
+        : 'Race to the checkered flags! Set a time to beat!';
+      this.callbacks.onTipMessage(msg);
+      narrator.say(g.event.rival && !g.event.own ? `Ready, set, go! Race ${g.event.rival}!` : 'Ready, set, go!', true);
+    } else if (g.event?.type === 'finish') {
+      const secs = Math.round(g.event.time);
+      if (!g.event.rival) {
+        this.rewardStars(5, 25);
+        sound.playMissionComplete();
+        this.callbacks.onTreasurePopup(`Your time: ${secs} seconds!`, 5, '⏱️');
+        narrator.say(`${secs} seconds! Great swimming!`, true);
+      } else if (g.event.won) {
+        this.rewardStars(10, 50);
+        sound.playMissionComplete();
+        const title = g.event.own ? `New best time: ${secs} seconds!` : `You beat ${g.event.rival}'s ghost!`;
+        this.callbacks.onTreasurePopup(title, 10, '🏆');
+        narrator.say(cheer(g.event.own ? 'New best time' : `You beat ${g.event.rival}`), true);
+        this.sparkles.burst(this.player.group.position, RAINBOW_COLORS, 50, 4.5, 1.5);
+      } else {
+        this.rewardStars(2, 10);
+        const title = g.event.own ? `${secs} seconds! So close!` : `${g.event.rival}'s ghost won! Great try!`;
+        this.callbacks.onTreasurePopup(title, 2, '👻');
+        narrator.say(g.event.own ? 'So close! Try again next time!' : `${g.event.rival} won this time! Great try!`, true);
+      }
+    }
+    this.emitMiniGame(r.progress || g.progress);
   }
 
   /** Caimans and piranhas: a warning first, and getting caught only costs one snack. */
@@ -1928,6 +1976,10 @@ export class GameEngine {
             ev.by === 'caiman' ? 'Shh! A croc is sleeping. Swim around it!' : 'Grumpy piranhas! Zoom away!'
           );
         }
+      } else if (ev.type === 'stalk') {
+        this.lastBadGuyTip = this.elapsedSeconds;
+        this.callbacks.onTipMessage('Uh oh! The croc is following you! Zoom!');
+        narrator.say('The croc is following you! Zoom!', true);
       } else if (ev.type === 'bump') {
         this.bump(ev.at);
       } else if (ev.type === 'caught') {
@@ -2225,6 +2277,7 @@ export class GameEngine {
     this.cats.dispose();
     this.fireflies.dispose();
     this.race.dispose();
+    this.ghostRace.dispose();
     this.sky.dispose();
     narrator.stop();
     music.stop();

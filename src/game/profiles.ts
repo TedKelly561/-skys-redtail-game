@@ -25,6 +25,7 @@ const PLAYER_KEYS = [
   'whiskers_dive_v1',
   'whiskers_lake_daily_v1',
   'whiskers_daily_missions_v1',
+  'whiskers_ghost_v1',
 ];
 
 export const MAX_PROFILES = 4;
@@ -86,6 +87,23 @@ export function loadProfiles(): ProfilesState {
 
 function saveProfiles(state: ProfilesState) {
   write(PROFILES_KEY, JSON.stringify(state));
+}
+
+/** The player who is playing now. */
+export function activeProfile(state = loadProfiles()): Profile {
+  return state.list.find((p) => p.id === state.active) || state.list[0];
+}
+
+/** One saved value for each of the other players on this device (those that have it). */
+export function otherPlayersValue(key: string): { profile: Profile; value: string }[] {
+  const state = loadProfiles();
+  const out: { profile: Profile; value: string }[] = [];
+  for (const p of state.list) {
+    if (p.id === state.active) continue;
+    const value = read(stashKey(p.id, key));
+    if (value !== null) out.push({ profile: p, value });
+  }
+  return out;
 }
 
 /** The first profile is the one that uses the grown-up's cloud save. */

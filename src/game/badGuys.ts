@@ -8,12 +8,14 @@ import { mergeStaticMeshes } from './perf';
  * - Sleepy caimans float at the surface. Bump one (or zoom right past it) and it wakes up
  *   with a SNAP. Swim around it to sneak past.
  * - Grumpy piranhas guard a spot. Swim close and they chase for a few seconds; zoom away.
+ * - Tricky: crocs lunge when they wake, and sometimes follow Whiskers for a few seconds.
  */
 export type BadGuyEvent =
   | { type: 'caught'; by: 'caiman' | 'piranhas'; at?: THREE.Vector3 }
   | { type: 'bump'; by: 'caiman'; at: THREE.Vector3 }
   | { type: 'warn'; by: 'caiman' | 'piranhas' }
-  | { type: 'escaped'; by: 'caiman' | 'piranhas' };
+  | { type: 'escaped'; by: 'caiman' | 'piranhas' }
+  | { type: 'stalk'; by: 'caiman' };
 
 interface Caiman {
   group: THREE.Group;
@@ -22,7 +24,9 @@ interface Caiman {
   lids: THREE.Mesh[];
   pupils: THREE.Mesh[];
   zzz: THREE.Sprite[];
-  state: 'sleep' | 'snap' | 'awake';
+  state: 'sleep' | 'snap' | 'awake' | 'stalk';
+  /** Decided at the snap: follow Whiskers afterwards (Tricky). */
+  willStalk: boolean;
   timer: number;
   phase: number;
   warned: boolean;
@@ -79,7 +83,7 @@ export class BadGuys {
   private schools: PiranhaSchool[] = [];
   private disposables: { dispose: () => void }[] = [];
   /** Tuned by the grown-ups difficulty setting. */
-  public tuning = { wake: 2.6, zoomWake: 4.2, lunge: 0, notice: 14, chaseTime: 3.5 };
+  public tuning = { wake: 2.6, zoomWake: 4.2, lunge: 0, stalk: 0, notice: 14, chaseTime: 3.5 };
   private extrasOn = false;
 
   /** Tricky adds more crocs and piranhas; on other levels they stay hidden and asleep. */
@@ -190,7 +194,7 @@ export class BadGuys {
       this.caimanGroup.add(g);
       g.visible = !extra;
       this.caimans.push({
-        group: g, jaw, tail, lids, pupils, zzz, state: 'sleep', timer: 0, phase: i, warned: false, caughtThisSnap: false, bumpCooldown: 0,
+        group: g, jaw, tail, lids, pupils, zzz, state: 'sleep', willStalk: false, timer: 0, phase: i, warned: false, caughtThisSnap: false, bumpCooldown: 0,
         home: g.position.clone(), homeRot: g.rotation.y, extra: extra === 1,
       });
     });
@@ -368,9 +372,38 @@ export class BadGuys {
         }
         if (c.timer >= 0.35 && !c.caughtThisSnap) {
           c.caughtThisSnap = true;
-          events.push(near < 3.6 && !deep ? { type: 'caught', by: 'caiman' } : { type: 'escaped', by: 'caiman' });
+          const caught = near < 3.6 && !deep;
+          // Tricky: a croc that missed sometimes swims after Whiskers for a few seconds.
+          c.willStalk = !caught && !deep && Math.random() < this.tuning.stalk;
+          events.push(caught ? { type: 'caught', by: 'caiman' } : c.willStalk ? { type: 'stalk', by: 'caiman' } : { type: 'escaped', by: 'caiman' });
         }
         if (c.timer > 0.8) {
+          c.state = c.willStalk ? 'stalk' : 'awake';
+          c.willStalk = false;
+          c.timer = 0;
+        }
+      } else if (c.state === 'stalk') {
+        // Paddle after Whiskers: a bit slower than his Zoom, so zooming always gets away.
+        c.timer += dt;
+        c.tail.rotation.y = Math.sin(c.timer * 14) * 0.45;
+        c.jaw.rotation.x = 0.25 + Math.sin(c.timer * 5) * 0.1;
+        const sx = player.x - g.position.x;
+        const sz = player.z - g.position.z;
+        const sd = Math.hypot(sx, sz);
+        if (sd > 0.5) {
+          const step = Math.min(sd, chaseSpeed * 0.82 * dt);
+          g.position.x += (sx / sd) * step;
+          g.position.z += (sz / sd) * step;
+          const want = Math.atan2(sx, sz);
+          g.rotation.y += Math.atan2(Math.sin(want - g.rotation.y), Math.cos(want - g.rotation.y)) * Math.min(1, dt * 6);
+        }
+        const fromHome = Math.hypot(g.position.x - c.home.x, g.position.z - c.home.z);
+        if (headDist < 2.2 && !deep) {
+          events.push({ type: 'caught', by: 'caiman' });
+          c.state = 'awake';
+          c.timer = 0;
+        } else if (c.timer > 4 || fromHome > 24 || deep) {
+          events.push({ type: 'escaped', by: 'caiman' });
           c.state = 'awake';
           c.timer = 0;
         }
