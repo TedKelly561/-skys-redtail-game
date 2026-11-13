@@ -132,10 +132,20 @@ interface StreamEntry {
 export class DistanceStreamer {
   private entries: StreamEntry[] = [];
   private timer = 0;
+  /** Objects that have never been shown yet wait here and come in one per frame. */
+  private firstTimers: StreamEntry[] = [];
+  private shown = new WeakSet<THREE.Object3D>();
 
   /** Register every current child of `parent`. */
   public addChildrenOf(parent: THREE.Object3D, radius: number) {
     for (const obj of [...parent.children]) this.add(obj, parent, radius);
+  }
+
+  private attach(e: StreamEntry) {
+    if (e.attached) return;
+    e.parent.add(e.obj);
+    e.attached = true;
+    this.shown.add(e.obj);
   }
 
   public add(obj: THREE.Object3D, parent: THREE.Object3D, radius: number) {
@@ -145,6 +155,11 @@ export class DistanceStreamer {
 
   /** Call every frame; it only does work a few times a second (or immediately when forced). */
   public update(dt: number, focus: THREE.Vector3, force = false) {
+    // The first time something shows up, the graphics card has to load its shape. Bring those in
+    // one per frame (they're far ahead, so nobody sees the wait) instead of several in one frame,
+    // which made the picture hiccup.
+    const next = this.firstTimers.shift();
+    if (next) this.attach(next);
     this.timer -= dt;
     if (this.timer > 0 && !force) return;
     this.timer = 0.25;
@@ -153,8 +168,8 @@ export class DistanceStreamer {
       const dz = e.obj.position.z - focus.z;
       const d = dx * dx + dz * dz;
       if (!e.attached && d < e.radiusSq) {
-        e.parent.add(e.obj);
-        e.attached = true;
+        if (force || this.shown.has(e.obj)) this.attach(e);
+        else if (!this.firstTimers.includes(e)) this.firstTimers.push(e);
       } else if (e.attached && d > e.hideSq) {
         e.parent.remove(e.obj);
         e.attached = false;

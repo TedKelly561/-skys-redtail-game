@@ -94,6 +94,35 @@ function addPart(
   list.push(g);
 }
 
+/**
+ * Store normals, colors and sway as bytes instead of floats: the forest is millions of points, so
+ * this halves the memory it needs and how much the graphics card has to load as Whiskers swims.
+ */
+function packAttributes(g: THREE.BufferGeometry) {
+  const normal = g.getAttribute('normal') as THREE.BufferAttribute | undefined;
+  if (normal) {
+    const n = new Int8Array(normal.count * 3);
+    for (let i = 0; i < normal.array.length; i++) n[i] = Math.round(THREE.MathUtils.clamp(normal.array[i], -1, 1) * 127);
+    g.setAttribute('normal', new THREE.BufferAttribute(n, 3, true));
+  }
+  const color = g.getAttribute('color') as THREE.BufferAttribute | undefined;
+  if (color) {
+    const c = new Uint8Array(color.count * 3);
+    for (let i = 0; i < color.array.length; i++) c[i] = Math.round(THREE.MathUtils.clamp(color.array[i], 0, 1) * 255);
+    g.setAttribute('color', new THREE.BufferAttribute(c, 3, true));
+  }
+  const sway = g.getAttribute('sway') as THREE.BufferAttribute | undefined;
+  if (sway) {
+    let max = 0;
+    for (let i = 0; i < sway.array.length; i++) max = Math.max(max, sway.array[i]);
+    if (max <= 1) {
+      const w = new Uint8Array(sway.count);
+      for (let i = 0; i < w.length; i++) w[i] = Math.round(Math.max(0, sway.array[i]) * 255);
+      g.setAttribute('sway', new THREE.BufferAttribute(w, 1, true));
+    }
+  }
+}
+
 function compose(x: number, y: number, z: number, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) {
   _e.set(rx, ry, rz);
   _q.setFromEuler(_e);
@@ -505,21 +534,20 @@ export class Forest {
       }
     }
 
-    // Grand Lake: a little palm island and lily pads with lotus flowers.
-    const lake = new PartList();
-    this.buildLakeDecor(lake);
+    // Grand Lake: a little palm island and lily pads with lotus flowers. They go into the same
+    // chunks as the shore, so they load in step with Whiskers instead of all at once mid-lake.
+    this.buildLakeDecor(partsAt);
     chunks.forEach((parts) => {
       this.addChunkMesh(parts.solid, solidMat);
       this.addChunkMesh(parts.leaves, leafMat);
     });
-    this.addChunkMesh(lake.solid, solidMat);
-    this.addChunkMesh(lake.leaves, leafMat);
   }
 
-  private buildLakeDecor(parts: PartList) {
+  private buildLakeDecor(partsAt: (dist: number) => PartList) {
     const r = rng(424242);
     // Island just off the swimming line, ahead of where Whiskers reaches the lake.
     const isle = getRiverPath(2520);
+    let parts = partsAt(2520);
     const ix = isle.position.x + isle.normal.x * 22;
     const iz = isle.position.z + isle.normal.z * 22;
     addPart(parts.solid, BLOB, compose(ix, -0.9, iz, 0, 0, 0, 8.5, 1.6, 7.5), '#e8d29a', -1, 3, 0, r, 0.3);
@@ -540,6 +568,7 @@ export class Forest {
     pad.rotateX(-Math.PI / 2);
     for (let dist = 2380; dist < 2980; dist += 6) {
       const { position, normal, width } = getRiverPath(dist);
+      parts = partsAt(dist);
       const n = 2 + Math.floor(r() * 2);
       for (let k = 0; k < n; k++) {
         const lat = (r() - 0.5) * width * 0.85;
@@ -586,6 +615,7 @@ export class Forest {
     const merged = mergeGeometries(geos, false);
     geos.forEach((g) => g.dispose());
     if (!merged) return;
+    packAttributes(merged);
     merged.computeBoundingBox();
     const center = new THREE.Vector3();
     merged.boundingBox!.getCenter(center);

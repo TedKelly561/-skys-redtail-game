@@ -133,7 +133,93 @@ export function removeProfile(id: string): ProfilesState {
   const state = loadProfiles();
   if (id === state.active || id === state.list[0].id) return state;
   for (const key of PLAYER_KEYS) write(stashKey(id, key), null);
+  // Remember the removal so the cloud backup doesn't bring this player back.
+  write(REMOVED_KEY, JSON.stringify([...removedIds().filter((x) => x !== id), id].slice(-20)));
   const next = { ...state, list: state.list.filter((p) => p.id !== id) };
   saveProfiles(next);
   return next;
+}
+
+// ------------------------------------------------------------------ Cloud backup of other players
+const REMOVED_KEY = 'whiskers_removed_players';
+/** Photos are big and stay on the device. */
+const NOT_BACKED_UP = new Set(['whiskers_photos_v1']);
+
+export interface PlayerBackup {
+  id: string;
+  name: string;
+  color: string;
+  data: Record<string, string>;
+}
+
+function removedIds(): string[] {
+  try {
+    const v = JSON.parse(read(REMOVED_KEY) || '[]');
+    return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Every player except the first, with their saved data (for the cloud backup). */
+export function collectOtherPlayers(): PlayerBackup[] {
+  const state = loadProfiles();
+  return state.list.slice(1).map((p) => {
+    const data: Record<string, string> = {};
+    for (const key of PLAYER_KEYS) {
+      if (NOT_BACKED_UP.has(key)) continue;
+      const v = p.id === state.active ? read(key) : read(stashKey(p.id, key));
+      if (v !== null) data[key] = v;
+    }
+    const name = p.id === state.active ? currentName() || p.name : p.name;
+    return { id: p.id, name, color: p.color, data };
+  });
+}
+
+/** One player as text for the cloud, trimmed to fit if it ever grows too big. */
+export function packPlayer(b: PlayerBackup, maxChars: number): string {
+  const data = { ...b.data };
+  let text = JSON.stringify({ ...b, data });
+  while (text.length > maxChars) {
+    const biggest = Object.keys(data).sort((a, c) => data[c].length - data[a].length)[0];
+    if (!biggest) break;
+    delete data[biggest];
+    text = JSON.stringify({ ...b, data });
+  }
+  return text;
+}
+
+/**
+ * Bring back players from the cloud backup who aren't on this device (a new or reset device).
+ * Players already here keep what they have; players a grown-up removed stay removed.
+ * Returns the new profile list, or null if nothing changed.
+ */
+export function restoreMissingPlayers(packed: string[]): ProfilesState | null {
+  const state = loadProfiles();
+  const removed = removedIds();
+  let changed = false;
+  for (const text of packed) {
+    if (state.list.length >= MAX_PROFILES) break;
+    let b: PlayerBackup;
+    try {
+      b = JSON.parse(text);
+    } catch {
+      continue;
+    }
+    if (!b || typeof b.id !== 'string' || !/^p[a-z0-9]{1,20}$/i.test(b.id)) continue;
+    if (state.list.some((p) => p.id === b.id) || removed.includes(b.id)) continue;
+    const data = b.data && typeof b.data === 'object' ? b.data : {};
+    for (const key of PLAYER_KEYS) {
+      const v = typeof data[key] === 'string' ? data[key] : null;
+      write(stashKey(b.id, key), v);
+    }
+    const used = new Set(state.list.map((p) => p.color));
+    const color = PROFILE_COLORS.includes(b.color) && !used.has(b.color)
+      ? b.color
+      : PROFILE_COLORS.find((c) => !used.has(c)) || PROFILE_COLORS[0];
+    state.list.push({ id: b.id, name: typeof b.name === 'string' ? b.name.slice(0, 40) : '', color });
+    changed = true;
+  }
+  if (changed) saveProfiles(state);
+  return changed ? state : null;
 }

@@ -57,9 +57,9 @@ function createStarGeometry(): THREE.BufferGeometry {
 
   return new THREE.ExtrudeGeometry(shape, {
     depth: 0.16,
-    curveSegments: 24,
+    curveSegments: 4,
     bevelEnabled: true,
-    bevelSegments: 5,
+    bevelSegments: 2,
     bevelSize: 0.045,
     bevelThickness: 0.045,
   });
@@ -75,9 +75,9 @@ function createScaleGeometry(): THREE.BufferGeometry {
 
   return new THREE.ExtrudeGeometry(shape, {
     depth: 0.055,
-    curveSegments: 28,
+    curveSegments: 10,
     bevelEnabled: true,
-    bevelSegments: 4,
+    bevelSegments: 2,
     bevelSize: 0.026,
     bevelThickness: 0.026,
   });

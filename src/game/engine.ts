@@ -193,6 +193,8 @@ export class GameEngine {
   private falls: WaterfallSlide;
   /** Inside the fish house (and which part of the room we're looking at), or null. */
   public houseView: HouseView | null = null;
+  /** A soft dark patch under Whiskers for when real shadows are off (slower computers). */
+  private blobShadow!: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
   private houseTime = 0;
   private houseCooldown = 0;
   private houseLook = new THREE.Vector3();
@@ -373,6 +375,7 @@ export class GameEngine {
 
     this.player = new CatfishCharacter();
     this.scene.add(this.player.group);
+    this.blobShadow = this.makeBlobShadow();
     this.buddy = new BabyFish(this.scene);
     this.learning = new LearningMoments(this.scene);
     this.buddy.group.visible = false;
@@ -930,6 +933,7 @@ export class GameEngine {
       this.waterLook.uniforms.uTime.value += dt;
       this.streamer.update(dt, this.player.group.position);
       this.watchShadowCost(rawDt);
+      this.updateBlobShadow();
       if (!debugFlag('fixedres')) this.adaptiveResolution.update(rawDt);
       this.recordFrame(rawDt);
       this.sky.update(dt, this.camera.position);
@@ -1692,6 +1696,50 @@ export class GameEngine {
   private lastPixelRatio = 0;
   private pixelRatioChanges = 0;
 
+  private makeBlobShadow() {
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const ctx = c.getContext('2d')!;
+    const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    g.addColorStop(0, 'rgba(255,255,255,1)');
+    g.addColorStop(0.55, 'rgba(255,255,255,0.55)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 64, 64);
+    const tex = new THREE.CanvasTexture(c);
+    const geo = new THREE.PlaneGeometry(1.3, 3.0);
+    geo.rotateX(-Math.PI / 2);
+    const mat = new THREE.MeshBasicMaterial({
+      map: tex,
+      color: '#0b2a33',
+      transparent: true,
+      opacity: 0.4,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.visible = false;
+    mesh.renderOrder = 1;
+    this.scene.add(mesh);
+    return mesh;
+  }
+
+  private updateBlobShadow() {
+    const blob = this.blobShadow;
+    const show = !this.dirLight.castShadow && this.gameState === 'playing' && !this.houseView && this.player.group.visible;
+    blob.visible = show;
+    if (!show) return;
+    const p = this.player.group.position;
+    const bed = getRiverBedElevationAt(this.playerDistance, this.playerLateral);
+    const height = Math.max(0, p.y - bed);
+    blob.position.set(p.x, bed + 0.04, p.z);
+    blob.rotation.y = this.player.group.rotation.y;
+    blob.scale.setScalar(1 + height * 0.06);
+    blob.material.opacity = 0.5 * THREE.MathUtils.clamp(1 - height / 7, 0.2, 1);
+  }
+
   /** Shadows are the costliest effect on some laptops; this device turned them off before. */
   private shadowsWanted() {
     const force = debugFlag('shadows');
@@ -2160,6 +2208,9 @@ export class GameEngine {
     this.ringManager.dispose();
     this.chestManager.dispose();
     this.forest.dispose();
+    this.blobShadow.geometry.dispose();
+    this.blobShadow.material.map?.dispose();
+    this.blobShadow.material.dispose();
     this.sparkles.dispose();
     this.rainbow.dispose();
     this.badGuys.dispose();
