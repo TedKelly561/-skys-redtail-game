@@ -33,7 +33,7 @@ export const DressUpShop: React.FC<DressUpShopProps> = ({
   const [tab, setTab] = useState<ClosetSlot>('hat');
   if (!isOpen) return null;
 
-  const items = CLOSET_ITEMS.filter((i) => i.slot === tab);
+  const items = CLOSET_ITEMS.filter((i) => i.slot === tab && (!i.secret || closet.owned.includes(i.id)));
   const wearing = closet.outfit[tab];
 
   return (

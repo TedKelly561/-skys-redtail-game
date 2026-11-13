@@ -18,7 +18,10 @@ export type MomentKind =
   | 'ghostRace'
   | 'pip'
   | 'learn'
-  | 'chest';
+  | 'chest'
+  | 'cave'
+  | 'crystal'
+  | 'turtleRide';
 
 export interface Trip {
   startedAt: number;
@@ -151,6 +154,13 @@ export function storyPages(trip: Trip, playerName: string, photoCount: number, f
   if (m.learn) fun.push(m.learn === 1 ? 'answered a puzzle' : `answered ${m.learn} puzzles`);
   if (fun.length > 0) {
     pages.push({ emoji: '🎉', title: 'Fun and games', text: `Whiskers ${listJoin(fun)}.` });
+  }
+
+  if (m.cave) {
+    const cave: string[] = ['swam into the glowing cave under the lake'];
+    if (m.crystal) cave.push(m.crystal === 1 ? 'found a sparkly crystal' : `found ${m.crystal} sparkly crystals`);
+    if (m.turtleRide) cave.push("rode on Grandpa Turtle's back");
+    pages.push({ emoji: '💎', title: 'The glowing cave', text: `Whiskers ${listJoin(cave)}.` });
   }
 
   if (photoCount > 0) {

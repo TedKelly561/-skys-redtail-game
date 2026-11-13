@@ -183,6 +183,15 @@ export class SeasonEffects {
     this.disposables.push(geo, this.material, this.leafTex, this.snowTex);
   }
 
+  private hidden = false;
+
+  /** Hide falling leaves/snow and lights (inside the lake cave). */
+  public setHidden(hidden: boolean) {
+    this.hidden = hidden;
+    this.points.visible = !hidden && this.season !== 'summer';
+    if (this.lights) this.lights.visible = !hidden && this.lights.userData.wanted === true;
+  }
+
   public setSeason(season: Season, holiday: boolean) {
     this.season = season;
     this.points.visible = season !== 'summer';
@@ -203,7 +212,11 @@ export class SeasonEffects {
 
     const wantLights = season === 'winter' && holiday;
     if (wantLights && !this.lights) this.buildLights();
-    if (this.lights) this.lights.visible = wantLights;
+    if (this.lights) {
+      this.lights.userData.wanted = wantLights;
+      this.lights.visible = wantLights && !this.hidden;
+    }
+    this.points.visible = season !== 'summer' && !this.hidden;
   }
 
   /** Strings of colored bulbs on little posts along both banks. */
