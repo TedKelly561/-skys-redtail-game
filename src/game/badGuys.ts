@@ -28,6 +28,11 @@ interface Caiman {
   warned: boolean;
   caughtThisSnap: boolean;
   bumpCooldown: number;
+  /** Where it sleeps; after a lunge it drifts back here. */
+  home: THREE.Vector3;
+  homeRot: number;
+  /** Only shows up on Tricky. */
+  extra: boolean;
 }
 
 interface PiranhaSchool {
@@ -38,10 +43,14 @@ interface PiranhaSchool {
   timer: number;
   cooldown: number;
   phase: number;
+  extra: boolean;
 }
 
 const CAIMAN_SPOTS = [600, 910, 1200, 1500, 1810, 2120];
 const PIRANHA_SPOTS = [1080, 1350, 1700, 1990];
+/** Extra bad guys that only show up on Tricky. */
+const TRICKY_CAIMAN_SPOTS = [760, 1420, 1960];
+const TRICKY_PIRANHA_SPOTS = [840, 1190, 1560, 2210];
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
@@ -70,7 +79,15 @@ export class BadGuys {
   private schools: PiranhaSchool[] = [];
   private disposables: { dispose: () => void }[] = [];
   /** Tuned by the grown-ups difficulty setting. */
-  public tuning = { wake: 2.6, zoomWake: 4.2, notice: 14, chaseTime: 3.5 };
+  public tuning = { wake: 2.6, zoomWake: 4.2, lunge: 0, notice: 14, chaseTime: 3.5 };
+  private extrasOn = false;
+
+  /** Tricky adds more crocs and piranhas; on other levels they stay hidden and asleep. */
+  public setExtras(on: boolean) {
+    this.extrasOn = on;
+    for (const c of this.caimans) if (c.extra) c.group.visible = on;
+    for (const s of this.schools) if (s.extra) s.group.visible = on;
+  }
 
   constructor(scene: THREE.Scene) {
     scene.add(this.caimanGroup, this.piranhaGroup);
@@ -99,7 +116,8 @@ export class BadGuys {
       return m;
     };
 
-    CAIMAN_SPOTS.forEach((dist, i) => {
+    const spots = [...CAIMAN_SPOTS.map((d) => [d, 0]), ...TRICKY_CAIMAN_SPOTS.map((d) => [d, 1])];
+    spots.forEach(([dist, extra], i) => {
       const { position, normal, tangent, width } = getRiverPath(dist);
       const lateral = (i % 2 === 0 ? 1 : -1) * width * (0.12 + (i % 3) * 0.05);
       const g = new THREE.Group();
@@ -170,7 +188,11 @@ export class BadGuys {
       g.position.set(position.x + normal.x * lateral, -0.12, position.z + normal.z * lateral);
       g.rotation.y = Math.atan2(tangent.x, tangent.z) + (i % 2 === 0 ? 1.1 : -1.1);
       this.caimanGroup.add(g);
-      this.caimans.push({ group: g, jaw, tail, lids, pupils, zzz, state: 'sleep', timer: 0, phase: i, warned: false, caughtThisSnap: false, bumpCooldown: 0 });
+      g.visible = !extra;
+      this.caimans.push({
+        group: g, jaw, tail, lids, pupils, zzz, state: 'sleep', timer: 0, phase: i, warned: false, caughtThisSnap: false, bumpCooldown: 0,
+        home: g.position.clone(), homeRot: g.rotation.y, extra: extra === 1,
+      });
     });
   }
 
@@ -222,7 +244,8 @@ export class BadGuys {
       return { body, tail };
     };
 
-    PIRANHA_SPOTS.forEach((dist, i) => {
+    const spots = [...PIRANHA_SPOTS.map((d) => [d, 0]), ...TRICKY_PIRANHA_SPOTS.map((d) => [d, 1])];
+    spots.forEach(([dist, extra], i) => {
       const { position, normal, width } = getRiverPath(dist);
       const lateral = (i % 2 === 0 ? -1 : 1) * width * 0.15;
       const bed = getRiverBedElevationAt(dist, lateral);
@@ -238,7 +261,8 @@ export class BadGuys {
         fish.push({ ...f, offset, phase: k * 1.7 });
       }
       this.piranhaGroup.add(group);
-      this.schools.push({ group, fish, home, state: 'idle', timer: 0, cooldown: 0, phase: i * 2 });
+      group.visible = !extra;
+      this.schools.push({ group, fish, home, state: 'idle', timer: 0, cooldown: 0, phase: i * 2, extra: extra === 1 });
     });
   }
 
@@ -247,6 +271,8 @@ export class BadGuys {
       c.state = 'sleep';
       c.timer = 0;
       c.warned = false;
+      c.group.position.copy(c.home);
+      c.group.rotation.y = c.homeRot;
     }
     for (const s of this.schools) {
       s.state = 'idle';
@@ -263,6 +289,7 @@ export class BadGuys {
     const events: BadGuyEvent[] = [];
 
     for (const c of this.caimans) {
+      if (c.extra && !this.extrasOn) continue;
       const g = c.group;
       const dx = g.position.x - player.x;
       const dz = g.position.z - player.z;
@@ -319,6 +346,26 @@ export class BadGuys {
         const open = c.timer < 0.35 ? Math.sin((c.timer / 0.35) * Math.PI * 0.5) : Math.max(0, 1 - (c.timer - 0.35) * 8);
         c.jaw.rotation.x = open * 0.7;
         c.tail.rotation.y = Math.sin(c.timer * 20) * 0.35;
+        // Tricky: lunge toward Whiskers while the jaws open (never farther than `lunge` from home).
+        if (this.tuning.lunge > 0 && c.timer < 0.35) {
+          const lx = player.x - g.position.x;
+          const lz = player.z - g.position.z;
+          const ld = Math.hypot(lx, lz);
+          if (ld > 1.2) {
+            const step = Math.min(ld - 1.2, (this.tuning.lunge / 0.35) * dt);
+            g.position.x += (lx / ld) * step;
+            g.position.z += (lz / ld) * step;
+            const ox = g.position.x - c.home.x;
+            const oz = g.position.z - c.home.z;
+            const od = Math.hypot(ox, oz);
+            if (od > this.tuning.lunge) {
+              g.position.x = c.home.x + (ox / od) * this.tuning.lunge;
+              g.position.z = c.home.z + (oz / od) * this.tuning.lunge;
+            }
+            const want = Math.atan2(lx, lz);
+            g.rotation.y += Math.atan2(Math.sin(want - g.rotation.y), Math.cos(want - g.rotation.y)) * Math.min(1, dt * 10);
+          }
+        }
         if (c.timer >= 0.35 && !c.caughtThisSnap) {
           c.caughtThisSnap = true;
           events.push(near < 3.6 && !deep ? { type: 'caught', by: 'caiman' } : { type: 'escaped', by: 'caiman' });
@@ -331,6 +378,13 @@ export class BadGuys {
         // Awake and grumpy for a few seconds, then back to sleep.
         c.timer += dt;
         c.tail.rotation.y = Math.sin(c.phase * 2) * 0.2;
+        // After a lunge, paddle slowly back to its sleeping spot.
+        if (c.timer > 1) {
+          const k = Math.min(1, dt * 0.8);
+          g.position.x += (c.home.x - g.position.x) * k;
+          g.position.z += (c.home.z - g.position.z) * k;
+          g.rotation.y += Math.atan2(Math.sin(c.homeRot - g.rotation.y), Math.cos(c.homeRot - g.rotation.y)) * k;
+        }
         if (c.timer > 4 && near > 6) {
           c.state = 'sleep';
           c.lids.forEach((l) => (l.visible = true));
@@ -340,6 +394,7 @@ export class BadGuys {
     }
 
     for (const s of this.schools) {
+      if (s.extra && !this.extrasOn) continue;
       const g = s.group;
       const dx = player.x - g.position.x;
       const dy = player.y - g.position.y;

@@ -341,7 +341,7 @@ export const GrownUpsModal: React.FC<GrownUpsModalProps> = ({
               [
                 { level: 'gentle', label: 'Gentle', hint: 'Slow, no snacks lost' },
                 { level: 'normal', label: 'Normal', hint: 'A little chase' },
-                { level: 'tricky', label: 'Tricky', hint: 'Faster, sneakier' },
+                { level: 'tricky', label: 'Tricky', hint: 'Faster swim, more bad guys' },
               ] as { level: Difficulty; label: string; hint: string }[]
             ).map((opt) => (
               <button
