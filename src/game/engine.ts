@@ -119,13 +119,32 @@ export type Difficulty = 'gentle' | 'normal' | 'tricky';
  */
 const LAKE_KEY = 'whiskers_lake_unlocked';
 
+/** How much faster Whiskers swims on Tricky. */
+const TRICKY_SWIM = 1.3;
+
+function scaleSpeeds(s: { base: number; max: number; boost: number; hungry: number }, k: number) {
+  return { base: s.base * k, max: s.max * k, boost: s.boost * k, hungry: s.hungry * k };
+}
+
 const DIFFICULTY: Record<
   Difficulty,
-  { wake: number; zoomWake: number; notice: number; chaseTime: number; chase: 'slow' | number; snack: number; cat: CatTuning }
+  {
+    wake: number;
+    zoomWake: number;
+    /** Meters a croc lunges toward Whiskers when it wakes (0 = snaps in place). */
+    lunge: number;
+    notice: number;
+    chaseTime: number;
+    chase: 'slow' | number;
+    snack: number;
+    cat: CatTuning;
+    /** Extra crocs, piranhas and cats along the river. */
+    extras: boolean;
+  }
 > = {
-  gentle: { wake: 2.0, zoomWake: 2.6, notice: 10, chaseTime: 2, chase: 'slow', snack: 0, cat: { trigger: 4.5, crouch: 0.9, lead: 0.15 } },
-  normal: { wake: 2.6, zoomWake: 4.2, notice: 14, chaseTime: 3.5, chase: 0.8, snack: 15, cat: { trigger: 5.5, crouch: 0.6, lead: 0.5 } },
-  tricky: { wake: 3.2, zoomWake: 5.5, notice: 18, chaseTime: 5, chase: 0.9, snack: 20, cat: { trigger: 6.5, crouch: 0.45, lead: 0.8 } },
+  gentle: { wake: 2.0, zoomWake: 2.6, lunge: 0, notice: 10, chaseTime: 2, chase: 'slow', snack: 0, cat: { trigger: 4.5, crouch: 0.9, lead: 0.15 }, extras: false },
+  normal: { wake: 2.6, zoomWake: 4.2, lunge: 0, notice: 14, chaseTime: 3.5, chase: 0.8, snack: 15, cat: { trigger: 5.5, crouch: 0.6, lead: 0.5 }, extras: false },
+  tricky: { wake: 3.6, zoomWake: 5.5, lunge: 2.6, notice: 18, chaseTime: 5, chase: 0.9, snack: 20, cat: { trigger: 8, crouch: 0.3, lead: 1 }, extras: true },
 };
 
 export interface MiniGameInfo {
@@ -259,6 +278,15 @@ export class GameEngine {
     epic: { base: 2.1, max: 3.1, boost: 4.5, hungry: 1.25 },
     cozy: { base: 4.4, max: 5.8, boost: 7.6, hungry: 2.8 },
   };
+  /** Tricky swims faster (everything that chases or races scales with it, so it stays fair). */
+  private readonly SPEEDS_TRICKY = {
+    epic: scaleSpeeds(this.SPEEDS.epic, TRICKY_SWIM),
+    cozy: scaleSpeeds(this.SPEEDS.cozy, TRICKY_SWIM),
+  };
+
+  private currentSpeeds() {
+    return (this.difficulty === 'tricky' ? this.SPEEDS_TRICKY : this.SPEEDS)[this.paceMode];
+  }
 
   private callbacks: GameCallbacks;
   private lastTummyRumbleTime: number = 0;
@@ -573,8 +601,10 @@ export class GameEngine {
   public setDifficulty(level: Difficulty) {
     this.difficulty = level;
     const t = DIFFICULTY[level];
-    this.badGuys.tuning = { wake: t.wake, zoomWake: t.zoomWake, notice: t.notice, chaseTime: t.chaseTime };
+    this.badGuys.tuning = { wake: t.wake, zoomWake: t.zoomWake, lunge: t.lunge, notice: t.notice, chaseTime: t.chaseTime };
+    this.badGuys.setExtras(t.extras);
     this.cats.tuning = t.cat;
+    this.cats.setExtras(t.extras);
     try {
       localStorage.setItem('whiskers_difficulty', level);
     } catch {
@@ -934,7 +964,7 @@ export class GameEngine {
       this.updateFallsRide(dt);
       return;
     }
-    const speedCfg = this.SPEEDS[this.paceMode];
+    const speedCfg = this.currentSpeeds();
     this.swimSeconds += dt;
     this.houseCooldown = Math.max(0, this.houseCooldown - dt);
     this.turnVelocity = THREE.MathUtils.damp(this.turnVelocity, -steerX * 2.0, 6, dt);
@@ -1074,7 +1104,7 @@ export class GameEngine {
       this.updateHouse(dt);
       return;
     }
-    const speedCfg = this.SPEEDS[this.paceMode];
+    const speedCfg = this.currentSpeeds();
 
     let steerX = 0;
     if (this.inputs.steerLeft) steerX -= 1;
@@ -1598,7 +1628,7 @@ export class GameEngine {
       }
     }
 
-    const speedCfg = this.SPEEDS[this.paceMode];
+    const speedCfg = this.currentSpeeds();
     const fleeSpeed = (speedCfg.base * 0.85 + speedCfg.boost) / 2;
     const ev = this.otter.update(dt, p, fleeSpeed, canPlay && !this.hideSeek.active);
     if (ev === 'invite') {

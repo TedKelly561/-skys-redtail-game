@@ -49,6 +49,8 @@ interface Cat {
   phase: number;
   cooldown: number;
   warned: boolean;
+  /** Only shows up on Tricky. */
+  extra: boolean;
 }
 
 const CAT_SPOTS: [number, 1 | -1][] = [
@@ -58,6 +60,13 @@ const CAT_SPOTS: [number, 1 | -1][] = [
   [1580, -1],
   [1880, 1],
   [2060, -1],
+];
+/** Extra cats that only show up on Tricky. */
+const TRICKY_CAT_SPOTS: [number, 1 | -1][] = [
+  [850, -1],
+  [1140, 1],
+  [1430, 1],
+  [1730, -1],
 ];
 const LEAP_TIME = 0.42;
 const REACH = 5.2;
@@ -76,6 +85,18 @@ function waterline(dist: number, side: number, halfW: number) {
 export class BushCats {
   public group = new THREE.Group();
   public tuning: CatTuning = { trigger: 5.5, crouch: 0.6, lead: 0.5 };
+  private extrasOn = false;
+
+  /** Tricky adds more cats; on other levels their bushes and cats stay hidden. */
+  public setExtras(on: boolean) {
+    this.extrasOn = on;
+    for (const c of this.cats) {
+      if (!c.extra) continue;
+      c.group.visible = on;
+      c.bush.visible = on;
+      if (!on) this.toHiding(c, 0);
+    }
+  }
   private cats: Cat[] = [];
   private disposables: { dispose: () => void }[] = [];
   private prevPlayer = new THREE.Vector3();
@@ -115,7 +136,8 @@ export class BushCats {
       return m;
     };
 
-    CAT_SPOTS.forEach(([dist, side], i) => {
+    const spots = [...CAT_SPOTS.map(([d, side]) => [d, side, 0]), ...TRICKY_CAT_SPOTS.map(([d, side]) => [d, side, 1])];
+    spots.forEach(([dist, side, extra], i) => {
       const { position, normal, width } = getRiverPath(dist);
       const edge = waterline(dist, side, width / 2);
       const at = (lat: number, out: THREE.Vector3) => {
@@ -242,7 +264,12 @@ export class BushCats {
         phase: i * 1.7,
         cooldown: 0,
         warned: false,
+        extra: extra === 1,
       });
+      if (extra) {
+        g.visible = false;
+        bush.visible = false;
+      }
     });
   }
 
@@ -282,6 +309,7 @@ export class BushCats {
     this.hasPrev = true;
 
     for (const c of this.cats) {
+      if (c.extra && !this.extrasOn) continue;
       const g = c.group;
       const dx = c.popPos.x - player.x;
       const dz = c.popPos.z - player.z;
