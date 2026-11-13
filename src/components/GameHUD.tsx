@@ -303,7 +303,10 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           <div className="relative h-14">
             {[
               { icon: '🐟', p: miniGame.race.whiskers, top: 'top-0', label: 'You' },
-              { icon: '🐬', p: miniGame.race.dolphin, top: 'top-7', label: '' },
+              // The dolphin race shows the dolphin; a ghost race shows the ghost (or nobody, the first time).
+              ...(miniGame.race.rivalIcon !== 'none'
+                ? [{ icon: miniGame.race.rivalIcon || '🐬', p: miniGame.race.dolphin, top: 'top-7', label: miniGame.race.rivalLabel || '' }]
+                : []),
             ].map((r) => (
               <div key={r.icon} className={`absolute inset-x-0 ${r.top} h-6`}>
                 <div className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-white/20" />
