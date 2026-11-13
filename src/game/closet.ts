@@ -13,6 +13,8 @@ export interface ClosetItem {
   name: string;
   icon: string;
   price: number;
+  /** Not in the shop: found somewhere in the game (shown once owned). */
+  secret?: boolean;
 }
 
 export const CLOSET_ITEMS: ClosetItem[] = [
@@ -22,6 +24,7 @@ export const CLOSET_ITEMS: ClosetItem[] = [
   { id: 'top-hat', slot: 'hat', name: 'Top Hat', icon: '🎩', price: 20 },
   { id: 'cowboy-hat', slot: 'hat', name: 'Cowboy Hat', icon: '🤠', price: 20 },
   { id: 'crown', slot: 'hat', name: 'Royal Crown', icon: '👑', price: 30 },
+  { id: 'crystal-crown', slot: 'hat', name: 'Crystal Crown', icon: '💎', price: 0, secret: true },
   { id: 'sunglasses', slot: 'glasses', name: 'Cool Shades', icon: '🕶️', price: 8 },
   { id: 'star-glasses', slot: 'glasses', name: 'Star Glasses', icon: '🤩', price: 12 },
   { id: 'blue-fins', slot: 'color', name: 'Ocean Blue', icon: '💙', price: 6 },
@@ -168,6 +171,23 @@ export function buildAccessory(id: string): THREE.Group | null {
         g.add(
           mesh(gem, mat(gemColors[i % 3], { emissive: gemColors[i % 3], emissiveIntensity: 0.5 }), [Math.cos(t) * 0.235, 0.06, Math.sin(t) * 0.235])
         );
+      }
+      g.position.set(0, 0.36, 0.52);
+      g.rotation.set(-0.15, 0, 0);
+      break;
+    }
+    case 'crystal-crown': {
+      // Found in the treasure chest in the lake cave: see-through glowing crystals.
+      const band = mat('#bff6ff', { metalness: 0.3, roughness: 0.15, emissive: '#3fd7ff', emissiveIntensity: 0.45, transparent: true, opacity: 0.85 });
+      g.add(mesh(new THREE.CylinderGeometry(0.22, 0.24, 0.1, 24, 1, true), band, [0, 0.05, 0]));
+      const shard = new THREE.OctahedronGeometry(0.07, 0);
+      const colors = ['#5ef2ff', '#ff7ad9', '#b48cff', '#ffd76a', '#7dffb2'];
+      for (let i = 0; i < 7; i++) {
+        const t = (i / 7) * Math.PI * 2;
+        const tall = i % 2 === 0 ? 2.6 : 1.8;
+        const m = mesh(shard, mat(colors[i % colors.length], { emissive: colors[i % colors.length], emissiveIntensity: 0.8, transparent: true, opacity: 0.9, roughness: 0.1 }), [Math.cos(t) * 0.22, 0.12 + tall * 0.05, Math.sin(t) * 0.22]);
+        m.scale.set(1, tall, 1);
+        g.add(m);
       }
       g.position.set(0, 0.36, 0.52);
       g.rotation.set(-0.15, 0, 0);

@@ -29,6 +29,7 @@ import { Fireflies } from './fireflies';
 import { music } from './music';
 import { DolphinRace, HideAndSeek, RaceProgress } from './minigames';
 import { GhostRace } from './ghostRace';
+import { LakeCave } from './cave';
 import { MomentKind, Trip, loadTrip, newTrip, saveTrip } from './storybook';
 import { FIN_COLORS, Outfit, buildAccessory, loadCloset } from './closet';
 import { WaterLook, addCaustics, createShorelineFoam, createWaterLook } from './water';
@@ -109,6 +110,10 @@ export interface GameCallbacks {
   onMiniGameChange: (info: MiniGameInfo) => void;
   /** Whiskers swam into (true) or out of (false) his fish house. */
   onHouseChange: (open: boolean) => void;
+  /** Inside the lake cave: crystals found so far (null when not in the cave). */
+  onCaveChange: (info: { found: number; total: number } | null) => void;
+  /** Something was found that unlocks a dress-up item (the Crystal Crown). */
+  onUnlockItem: (id: string) => void;
   /** A learning question to show (null hides it). */
   onLearningPrompt: (prompt: LearningPrompt | null) => void;
 }
@@ -216,6 +221,10 @@ export class GameEngine {
   private fireflies!: Fireflies;
   private race!: DolphinRace;
   private ghostRace!: GhostRace;
+  private cave!: LakeCave;
+  public inCave = false;
+  private caveCooldown = 0;
+  private caveTipShown = false;
   /** This swim, written down for the storybook. */
   private trip: Trip = loadTrip() || newTrip(0, 0);
   private tripSaveTimer = 0;
@@ -399,6 +408,8 @@ export class GameEngine {
     this.badGuys = new BadGuys(this.scene);
     this.cats = new BushCats(this.scene);
     this.house = new FishHouse(this.scene);
+    this.cave = new LakeCave(this.scene);
+    this.riverWorld.friendSpots.push(...this.cave.friendSpots);
     this.geysers = new BubbleGeysers(this.scene);
     this.dive = new TreasureDive(this.scene);
     this.otter = new Otter(this.scene);
@@ -442,6 +453,7 @@ export class GameEngine {
     this.streamer.addChildrenOf(this.badGuys.piranhaGroup, 140);
     this.streamer.addChildrenOf(this.cats.group, 140);
     this.streamer.addChildrenOf(this.house.group, 260);
+    this.streamer.add(this.cave.entrance, this.scene, 220);
     this.streamer.addChildrenOf(this.geysers.group, 200);
     this.streamer.addChildrenOf(this.dive.group, 170);
     this.streamer.add(this.otter.group, this.scene, 200);
@@ -703,6 +715,7 @@ export class GameEngine {
   public startGame(startAtChapterIndex: number = 0) {
     this.trip = newTrip(this.counts.stars, this.counts.treasuresTotal);
     this.saveTripNow();
+    if (this.inCave) this.leaveCave(false);
     this.isFreeSwim = false;
     this.riverWorld.setFamilyFollow(null);
     this.player.setRainbow(false);
@@ -1014,6 +1027,11 @@ export class GameEngine {
       this.enterHouse();
       return;
     }
+    this.caveCooldown = Math.max(0, this.caveCooldown - dt);
+    if (this.caveCooldown <= 0 && !this.isJumping && this.cave.atEntrance(_vec3C)) {
+      this.enterCave();
+      return;
+    }
     const next = worldToRiver(nx, nz);
     const hitsHouse = this.house.hitsWall(_vec3C);
     if (hitsHouse && this.bumpCooldown <= 0) this.bump(this.house.center);
@@ -1075,6 +1093,159 @@ export class GameEngine {
     _vec3A.set(x - fx * 6.2, Math.max(0.1, this.playerDepth + 3.1), z - fz * 6.2);
     this.camera.position.lerp(_vec3A, Math.min(1.0, dt * 4));
     _vec3B.set(x + fx * 4.8, this.playerDepth + 0.25, z + fz * 4.8);
+    this.camera.lookAt(_vec3B);
+  }
+
+  // ------------------------------------------------------------------ Lake cave
+  private enterCave() {
+    this.inCave = true;
+    this.isJumping = false;
+    const { pos, heading } = this.cave.enter();
+    this.player.group.position.copy(pos);
+    this.player.group.rotation.set(0, heading, 0);
+    this.playerDepth = pos.y;
+    this.freeHeading = heading;
+    this.turnVelocity = 0;
+    this.depthVelocity = 0;
+    this.forwardSpeed = 1.5;
+    this.camera.position.set(pos.x - Math.sin(heading) * 5.5, pos.y + 2, pos.z - Math.cos(heading) * 5.5);
+    this.riverWorld.setFamilyFollow(null);
+    this.seasonFx.setHidden(true);
+    this.fireflies.setVisible(false);
+    this.applyCaveLook();
+    this.addMoment('cave');
+    this.callbacks.onCaveChange({ found: 0, total: this.cave.total });
+    this.emitMiniGame(null);
+    sound.playMilestone();
+    this.callbacks.onTipMessage('A glowing cave! Find all the sparkly crystals!');
+    narrator.say('Wow, a glowing cave! Can you find all the sparkly crystals?', true);
+  }
+
+  /** Back to the Grand Lake (or quietly, when the whole game restarts). */
+  public leaveCave(toLake = true) {
+    if (!this.inCave) return;
+    this.inCave = false;
+    this.cave.leave();
+    this.seasonFx.setHidden(false);
+    this.applyChapterLook(CHAPTERS[this.currentChapterIndex], this.currentChapterIndex);
+    this.callbacks.onCaveChange(null);
+    this.emitMiniGame(null);
+    if (!toLake) return;
+    const { pos, heading } = this.cave.lakePose();
+    this.player.group.position.copy(pos);
+    this.player.group.rotation.set(0, heading, 0);
+    this.freeHeading = heading;
+    this.turnVelocity = 0;
+    this.forwardSpeed = 2;
+    const r = worldToRiver(pos.x, pos.z);
+    this.playerDistance = r.distance;
+    this.playerLateral = r.lateral;
+    this.playerDepth = pos.y;
+    this.caveCooldown = 3;
+    this.riverWorld.setFamilyFollow(this.player.group.position);
+    this.camera.position.set(pos.x - Math.sin(heading) * 6.2, 1.2, pos.z - Math.cos(heading) * 6.2);
+    this.callbacks.onTipMessage('Back in the Grand Lake!');
+  }
+
+  /** Dark and blue inside; brighter with every crystal found. */
+  private applyCaveLook() {
+    const glow = this.cave.glow;
+    const fog = new THREE.Color('#0d1236').lerp(new THREE.Color('#2b3a7a'), glow);
+    this.scene.fog = new THREE.FogExp2(fog, 0.032 - glow * 0.014);
+    this.scene.background = fog.clone();
+    this.hemiLight.color.set('#a9b8ff');
+    this.hemiLight.groundColor.set('#2a2160');
+    this.hemiLight.intensity = 0.6 + glow * 1.0;
+    this.dirLight.intensity = 0.25 + glow * 0.4;
+    this.scene.environmentIntensity = 0.12 + glow * 0.12;
+  }
+
+  private updateCaveSwim(dt: number, steerX: number, diveY: number, isBoosting: boolean) {
+    const p = this.player.group.position;
+    const events = this.cave.update(dt, p, true);
+    for (const ev of events) {
+      if (ev.type === 'crystal') {
+        this.addMoment('crystal');
+        this.rewardStars(1, 5);
+        sound.playCollectTreasure();
+        this.sparkles.burst(ev.at, ['#5ef2ff', '#ff7ad9', '#ffffff', '#ffd76a'], 30, 3.5, 1.6);
+        this.callbacks.onCaveChange({ found: ev.found, total: ev.total });
+        this.callbacks.onTipMessage(`💎 ${ev.found} of ${ev.total} crystals!`);
+        if (ev.found < ev.total) narrator.say(`${ev.found}!`, false);
+        this.applyCaveLook();
+      } else if (ev.type === 'allCrystals') {
+        this.rewardStars(10, 50);
+        sound.playMissionComplete();
+        this.callbacks.onTreasurePopup('You lit up the whole cave!', 10, '💎');
+        narrator.say(cheer('You lit up the whole cave'), true);
+        this.sparkles.burst(p, RAINBOW_COLORS, 60, 6, 2);
+      } else if (ev.type === 'rideStart') {
+        this.addMoment('turtleRide');
+        this.meetFriend('seaturtle', true);
+        this.callbacks.onTipMessage('Grandpa Turtle says: hop on! 🐢');
+        narrator.say('Grandpa Turtle says, hop on! Here we go!', true);
+        sound.playGiggle();
+      } else if (ev.type === 'rideEnd') {
+        this.callbacks.onTipMessage('Thanks for the ride, Grandpa Turtle!');
+        narrator.say('Thanks for the ride, Grandpa Turtle!', true);
+      } else if (ev.type === 'chest') {
+        this.addMoment('chest');
+        sound.playMissionComplete();
+        this.sparkles.burst(ev.at, ['#ffd76a', '#ffffff', '#5ef2ff'], 50, 4, 2);
+        if (!loadCloset().owned.includes('crystal-crown')) {
+          this.callbacks.onUnlockItem('crystal-crown');
+          this.callbacks.onTreasurePopup('You found the Crystal Crown! Try it on in Dress up.', 0, '💎');
+          narrator.say(cheer('You found the Crystal Crown'), true);
+        } else {
+          this.rewardStars(15, 60);
+          this.callbacks.onTreasurePopup('Hidden treasure!', 15, '🎁');
+          narrator.say(cheer('Hidden treasure'), true);
+        }
+      } else if (ev.type === 'exit') {
+        this.leaveCave(true);
+        return;
+      }
+    }
+
+    if (this.cave.riding) {
+      // Sitting on Grandpa Turtle's shell while he paddles around.
+      const heading = this.cave.seat(_vec3A);
+      p.lerp(_vec3A, Math.min(1, dt * 6));
+      this.freeHeading = heading;
+      this.forwardSpeed = 0;
+      this.player.group.rotation.y = heading;
+      this.player.update(dt, 2.5, 0, 0);
+    } else {
+      const speedCfg = this.currentSpeeds();
+      this.turnVelocity = THREE.MathUtils.damp(this.turnVelocity, -steerX * 2.0, 6, dt);
+      this.freeHeading += this.turnVelocity * dt;
+      const target = isBoosting ? speedCfg.boost * 0.8 : speedCfg.base * 0.7;
+      this.forwardSpeed = THREE.MathUtils.damp(this.forwardSpeed, target, 3.2, dt);
+      this.depthVelocity = THREE.MathUtils.damp(this.depthVelocity, diveY * 4.5, 6.5, dt);
+      p.x += Math.sin(this.freeHeading) * this.forwardSpeed * dt;
+      p.z += Math.cos(this.freeHeading) * this.forwardSpeed * dt;
+      p.y += this.depthVelocity * dt;
+      if (this.cave.keepInside(p)) {
+        // Bumped the cave wall: turn gently back toward the middle.
+        const want = this.cave.headingToCenter(p);
+        const diff = Math.atan2(Math.sin(want - this.freeHeading), Math.cos(want - this.freeHeading));
+        this.freeHeading += diff * Math.min(1, dt * 2.2);
+      }
+      this.player.group.rotation.y = this.freeHeading;
+      this.player.update(dt, this.forwardSpeed, steerX, diveY);
+    }
+    this.playerDepth = p.y;
+
+    this.dirLight.position.set(p.x + 25, p.y + 48, p.z + 15);
+    this.dirLight.target.position.copy(p);
+    this.dirLight.target.updateMatrixWorld();
+
+    const fx = Math.sin(this.freeHeading);
+    const fz = Math.cos(this.freeHeading);
+    _vec3A.set(p.x - fx * 5.5, p.y + 2.2, p.z - fz * 5.5);
+    this.cave.keepInside(_vec3A, 0.6);
+    this.camera.position.lerp(_vec3A, Math.min(1, dt * 4));
+    _vec3B.set(p.x + fx * 4, p.y + 0.2, p.z + fz * 4);
     this.camera.lookAt(_vec3B);
   }
 
@@ -1225,7 +1396,9 @@ export class GameEngine {
     targetSpeed += this.currentBoostBonus;
 
     const prevDistance = this.playerDistance;
-    if (this.isFreeSwim) {
+    if (this.isFreeSwim && this.inCave) {
+      this.updateCaveSwim(dt, steerX, diveY, isBoosting);
+    } else if (this.isFreeSwim) {
       // Grand Lake: swim anywhere (left/right turns Whiskers all the way around).
       this.updateLakeSwim(dt, steerX, diveY, isBoosting);
     } else {
@@ -1492,7 +1665,7 @@ export class GameEngine {
 
   private emitMiniGame(race: RaceProgress | null) {
     const info: MiniGameInfo = {
-      canHideSeek: this.isFreeSwim && !this.hideSeek.active,
+      canHideSeek: this.isFreeSwim && !this.inCave && !this.hideSeek.active,
       hideSeekActive: this.hideSeek.active,
       race: race
         ? {
@@ -1502,7 +1675,7 @@ export class GameEngine {
             rivalLabel: race.rivalLabel,
           }
         : null,
-      pearls: this.isFreeSwim ? { found: this.dive.foundCount, total: this.dive.total } : null,
+      pearls: this.isFreeSwim && !this.inCave ? { found: this.dive.foundCount, total: this.dive.total } : null,
     };
     const key = JSON.stringify(info);
     if (key !== this.lastMiniKey) {
@@ -1633,7 +1806,14 @@ export class GameEngine {
   /** Lake things animate every frame; games only run while free swimming. */
   private updateLakeWorld(dt: number) {
     const p = this.player.group.position;
+    if (!this.inCave) this.cave.update(dt, p, false);
+    if (this.inCave) return;
     const playing = this.gameState === 'playing' && this.isFreeSwim && !this.houseView;
+    if (playing && !this.caveTipShown && p.distanceToSquared(this.cave.entrancePos) < 40 * 40) {
+      this.caveTipShown = true;
+      this.callbacks.onTipMessage('A glowing light! Dive down into the cave! ⬇️');
+      narrator.say('Look, a glowing light! Dive down to find the cave!', true);
+    }
     const canPlay = playing && !this.falls.isRiding;
 
     if (this.geysers.update(dt, p, canPlay && !this.isJumping) >= 0) this.startJump();
@@ -1762,7 +1942,8 @@ export class GameEngine {
 
   private updateBlobShadow() {
     const blob = this.blobShadow;
-    const show = !this.dirLight.castShadow && this.gameState === 'playing' && !this.houseView && this.player.group.visible;
+    const show =
+      !this.dirLight.castShadow && this.gameState === 'playing' && !this.houseView && !this.inCave && this.player.group.visible;
     blob.visible = show;
     if (!show) return;
     const p = this.player.group.position;

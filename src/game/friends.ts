@@ -13,6 +13,9 @@ export type FriendKind =
   | 'dolphin'
   | 'otter'
   | 'family'
+  | 'lanternfish'
+  | 'jellyfish'
+  | 'seaturtle'
   | 'rainbow';
 
 export interface FriendInfo {
@@ -33,6 +36,9 @@ export const FRIENDS: FriendInfo[] = [
   { kind: 'dolphin', name: 'Pink Dolphin', hint: 'Jumping near the end' },
   { kind: 'otter', name: 'Otter', hint: 'Playing tag in the Grand Lake' },
   { kind: 'family', name: 'Catfish Family', hint: 'Waiting at the Grand Lake' },
+  { kind: 'lanternfish', name: 'Lantern Fish', hint: 'Glowing in the cave under the lake' },
+  { kind: 'jellyfish', name: 'Glow Jelly', hint: 'Floating in the cave under the lake' },
+  { kind: 'seaturtle', name: 'Grandpa Turtle', hint: 'Paddling around the lake cave' },
   { kind: 'rainbow', name: 'Rainbow Pearl', hint: 'Under the rainbow at the Grand Lake', special: true },
 ];
 

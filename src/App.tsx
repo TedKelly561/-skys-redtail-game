@@ -185,6 +185,8 @@ export default function App() {
   // Whiskers' fish house in the Grand Lake (decorations also cost stars).
   const [house, setHouse] = useState<HouseState>(() => loadHouse());
   const [inHouse, setInHouse] = useState<boolean>(false);
+  // Inside the lake cave: crystals found / total.
+  const [caveInfo, setCaveInfo] = useState<{ found: number; total: number } | null>(null);
   const [houseView, setHouseViewState] = useState<HouseView>('room');
   const [sleeping, setSleeping] = useState<boolean>(false);
   const wallet = Math.max(0, counts.stars - closet.spent - house.spent);
@@ -385,6 +387,14 @@ export default function App() {
       onNearbyFriendChange: (kind) => setFriendNearby(kind !== null),
       onMiniGameChange: (info) => setMiniGame(info),
       onLearningPrompt: (prompt) => setLearningPrompt(prompt),
+      onCaveChange: (info) => setCaveInfo(info),
+      onUnlockItem: (id) =>
+        setCloset((prev) => {
+          if (prev.owned.includes(id)) return prev;
+          const next = { ...prev, owned: [...prev.owned, id] };
+          saveCloset(next);
+          return next;
+        }),
       onHouseChange: (open) => {
         setInHouse(open);
         setHouseViewState('room');
@@ -845,6 +855,23 @@ export default function App() {
       )}
 
       {/* Learning moment question */}
+      {/* Lake cave: crystal counter and the way back out */}
+      {gameState === 'playing' && caveInfo && (
+        <div className="absolute inset-x-0 bottom-28 sm:bottom-32 z-30 flex justify-center pointer-events-none select-none">
+          <div className="flex items-center gap-3">
+            <div className="px-4 py-2 rounded-2xl bg-slate-950/80 border-2 border-cyan-300/60 text-white text-xl font-black shadow-lg">
+              💎 {caveInfo.found}/{caveInfo.total}
+            </div>
+            <button
+              onClick={() => engineRef.current?.leaveCave(true)}
+              className="pointer-events-auto px-4 py-2.5 rounded-2xl bg-cyan-500 border-2 border-white/70 text-white text-base font-black shadow-lg active:scale-95 cursor-pointer"
+            >
+              ⬆️ Back to the lake
+            </button>
+          </div>
+        </div>
+      )}
+
       {gameState === 'playing' && !inHouse && learningPrompt && (
         <LearningCard prompt={learningPrompt} onAnswer={(opt) => engineRef.current?.answerLearning(opt)} />
       )}
