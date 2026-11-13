@@ -26,6 +26,7 @@ const PLAYER_KEYS = [
   'whiskers_lake_daily_v1',
   'whiskers_daily_missions_v1',
   'whiskers_ghost_v1',
+  'whiskers_trip_v1',
 ];
 
 export const MAX_PROFILES = 4;

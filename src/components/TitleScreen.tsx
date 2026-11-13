@@ -30,6 +30,9 @@ interface TitleScreenProps {
   onSetBuddy: (look: BuddyLook | null) => void;
   photoCount: number;
   onOpenPhotos: () => void;
+  /** A storybook from the last swim exists. */
+  hasStory?: boolean;
+  onOpenStory?: () => void;
   profiles: ProfilesState;
   onSwitchProfile: (id: string) => void;
   onAddProfile: () => void;
@@ -264,6 +267,8 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
   onSetBuddy,
   photoCount,
   onOpenPhotos,
+  hasStory = false,
+  onOpenStory,
   profiles,
   onSwitchProfile,
   onAddProfile,
@@ -506,6 +511,15 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
                 />
                 <span>{buddy ? buddy.name : 'Buddy'}</span>
               </button>
+              {hasStory && onOpenStory && (
+                <button
+                  onClick={onOpenStory}
+                  className="pointer-events-auto flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-slate-950/80 border border-white/15 text-white text-base font-bold shadow-lg transition active:scale-95 cursor-pointer"
+                >
+                  <span className="text-lg leading-none">📚</span>
+                  <span>Storybook</span>
+                </button>
+              )}
               {photoCount > 0 && (
                 <button
                   onClick={onOpenPhotos}

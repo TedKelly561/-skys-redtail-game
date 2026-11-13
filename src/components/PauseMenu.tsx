@@ -11,6 +11,8 @@ interface PauseMenuProps {
   onToggleMute: () => void;
   onOpenGrownUps: () => void;
   onOpenShop: () => void;
+  /** The storybook of this swim so far. */
+  onOpenStory: () => void;
 }
 
 export const PauseMenu: React.FC<PauseMenuProps> = ({
@@ -22,6 +24,7 @@ export const PauseMenu: React.FC<PauseMenuProps> = ({
   onToggleMute,
   onOpenGrownUps,
   onOpenShop,
+  onOpenStory,
 }) => {
   const smallBtn =
     'flex-1 flex flex-col items-center justify-center gap-1 py-3 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white text-sm font-bold transition active:scale-95 cursor-pointer';
@@ -45,6 +48,14 @@ export const PauseMenu: React.FC<PauseMenuProps> = ({
         >
           <span>👒</span>
           <span>Dress up Whiskers</span>
+        </button>
+
+        <button
+          onClick={onOpenStory}
+          className="w-full py-3 rounded-2xl bg-amber-400 hover:bg-amber-300 border-2 border-white/40 text-amber-950 text-lg font-black flex items-center justify-center gap-2 transition active:scale-95 cursor-pointer"
+        >
+          <span>📚</span>
+          <span>Storybook</span>
         </button>
 
         <div>
