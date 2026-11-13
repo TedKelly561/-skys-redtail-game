@@ -249,3 +249,41 @@ export async function saveUserExtras(
     return false;
   }
 }
+
+/**
+ * Backups of the other players on this device (a cousin, a friend). The first player has full cloud
+ * save above; the others are kept as a snapshot so they come back if the device is reset. Needs
+ * the playerBackups block in firestore.rules.
+ */
+const BACKUP_SLOTS = ['p1', 'p2', 'p3'] as const;
+export const MAX_BACKUP_CHARS = 100000;
+
+export async function loadPlayerBackups(uid: string): Promise<string[] | null> {
+  try {
+    const snap = await getDoc(doc(db, 'playerBackups', uid));
+    if (!snap.exists()) return [];
+    const data = snap.data() as Record<string, unknown>;
+    return BACKUP_SLOTS.map((k) => (typeof data[k] === 'string' ? (data[k] as string) : '')).filter(Boolean);
+  } catch (err) {
+    warnExtras(err);
+    return null;
+  }
+}
+
+export async function savePlayerBackups(uid: string, players: string[]): Promise<boolean> {
+  if (!auth.currentUser || auth.currentUser.uid !== uid) return false;
+  try {
+    const slots = BACKUP_SLOTS.map((_, i) => (players[i] || '').slice(0, MAX_BACKUP_CHARS));
+    await setDoc(doc(db, 'playerBackups', uid), {
+      uid,
+      p1: slots[0],
+      p2: slots[1],
+      p3: slots[2],
+      updatedAt: serverTimestamp(),
+    });
+    return true;
+  } catch (err) {
+    warnExtras(err);
+    return false;
+  }
+}

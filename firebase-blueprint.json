@@ -184,6 +184,9 @@
         "$ref": "#/entities/UserExtras"
       },
       "description": "Private extras (friends, outfits, fish house, buddy) for each authenticated player."
+    },
+    "/playerBackups/{userId}": {
+      "description": "Owner-only backup of the other players on the device (slots p1-p3, each one player's saved game as text up to 100,000 characters)."
     }
   }
 }

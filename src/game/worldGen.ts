@@ -251,7 +251,7 @@ export function getRiverBedElevationAt(distance: number, lateralOffset: number):
  * Creates a high-polygon C2-smooth sculpted 3D fusiform fish geometry for Minnows and Neon Tetras
  */
 export function createDetailedSmallFishGeometry(length: number = 0.52): THREE.BufferGeometry {
-  const geo = new THREE.SphereGeometry(0.14, 32, 24);
+  const geo = new THREE.SphereGeometry(0.14, 16, 12);
   geo.scale(0.46, 0.84, length / 0.28);
   const pos = geo.attributes.position;
   for (let i = 0; i < pos.count; i++) {
@@ -324,9 +324,9 @@ export function createSmoothSmallFinGeometries(scale: number = 1.0): {
 
   const tailGeo = new THREE.ExtrudeGeometry(tailShape, {
     depth: 0.01 * scale,
-    curveSegments: 20,
+    curveSegments: 8,
     bevelEnabled: true,
-    bevelSegments: 3,
+    bevelSegments: 1,
     bevelSize: 0.004 * scale,
     bevelThickness: 0.004 * scale,
   });
@@ -354,9 +354,9 @@ export function createSmoothSmallFinGeometries(scale: number = 1.0): {
 
   const dorsalGeo = new THREE.ExtrudeGeometry(dorsalShape, {
     depth: 0.008 * scale,
-    curveSegments: 16,
+    curveSegments: 6,
     bevelEnabled: true,
-    bevelSegments: 2,
+    bevelSegments: 1,
     bevelSize: 0.003 * scale,
     bevelThickness: 0.003 * scale,
   });
@@ -384,9 +384,9 @@ export function createSmoothSmallFinGeometries(scale: number = 1.0): {
 
   const pecGeo = new THREE.ExtrudeGeometry(pecShape, {
     depth: 0.006 * scale,
-    curveSegments: 16,
+    curveSegments: 6,
     bevelEnabled: true,
-    bevelSegments: 2,
+    bevelSegments: 1,
     bevelSize: 0.002 * scale,
     bevelThickness: 0.002 * scale,
   });
@@ -1002,22 +1002,22 @@ export class RiverWorld {
     const pupilMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
 
     // Shared high-poly frog geometries
-    const fBodyGeo = new THREE.SphereGeometry(0.32, 24, 20);
+    const fBodyGeo = new THREE.SphereGeometry(0.32, 14, 10);
     fBodyGeo.scale(0.95, 0.72, 1.28);
-    const fHeadGeo = new THREE.SphereGeometry(0.25, 22, 18);
+    const fHeadGeo = new THREE.SphereGeometry(0.25, 12, 10);
     fHeadGeo.scale(1.15, 0.78, 1.08);
-    const sacGeo = new THREE.SphereGeometry(0.16, 18, 16);
-    const fEyeGeo = new THREE.SphereGeometry(0.085, 16, 16);
-    const fPupilGeo = new THREE.SphereGeometry(0.045, 14, 14);
-    const thighGeo = new THREE.CapsuleGeometry(0.085, 0.24, 10, 14);
-    const calfGeo = new THREE.CapsuleGeometry(0.068, 0.24, 10, 14);
-    const footGeo = new THREE.SphereGeometry(0.09, 14, 12);
+    const sacGeo = new THREE.SphereGeometry(0.16, 10, 8);
+    const fEyeGeo = new THREE.SphereGeometry(0.085, 10, 8);
+    const fPupilGeo = new THREE.SphereGeometry(0.045, 8, 6);
+    const thighGeo = new THREE.CapsuleGeometry(0.085, 0.24, 4, 8);
+    const calfGeo = new THREE.CapsuleGeometry(0.068, 0.24, 4, 8);
+    const footGeo = new THREE.SphereGeometry(0.09, 8, 6);
     footGeo.scale(0.9, 0.32, 1.65);
-    const armGeo = new THREE.CapsuleGeometry(0.058, 0.22, 10, 14);
-    const toePadGeo = new THREE.SphereGeometry(0.036, 10, 10);
+    const armGeo = new THREE.CapsuleGeometry(0.058, 0.22, 4, 8);
+    const toePadGeo = new THREE.SphereGeometry(0.036, 6, 4);
     toePadGeo.scale(1.1, 0.45, 1.1);
 
-    const petalGeo = new THREE.SphereGeometry(0.16, 14, 12);
+    const petalGeo = new THREE.SphereGeometry(0.16, 8, 6);
     petalGeo.scale(0.65, 1.8, 0.35);
     petalGeo.rotateZ(0.55);
 
@@ -1027,11 +1027,11 @@ export class RiverWorld {
       const padGroup = new THREE.Group();
 
       const padRadius = 2.35 + (dist % 3) * 0.38;
-      const padGeo = new THREE.CylinderGeometry(padRadius, padRadius, 0.06, 44);
+      const padGeo = new THREE.CylinderGeometry(padRadius, padRadius, 0.06, 28);
       const padMesh = new THREE.Mesh(padGeo, padMat);
       padGroup.add(padMesh);
 
-      const rimGeo = new THREE.TorusGeometry(padRadius, 0.13, 16, 44);
+      const rimGeo = new THREE.TorusGeometry(padRadius, 0.13, 8, 28);
       rimGeo.rotateX(Math.PI / 2);
       rimGeo.scale(1, 1, 1.85);
       const rimMesh = new THREE.Mesh(rimGeo, rimMat);
@@ -1302,7 +1302,7 @@ export class RiverWorld {
 
     const bodyGeo = createDetailedSmallFishGeometry(0.48);
     const { tailGeo, dorsalGeo, pecGeo } = createSmoothSmallFinGeometries(0.95);
-    const eyeGeo = new THREE.SphereGeometry(0.024, 12, 12);
+    const eyeGeo = new THREE.SphereGeometry(0.024, 6, 4);
 
     for (let dist = 55; dist < 2400; dist += 78) {
       const { position, normal, width } = getRiverPath(dist);
@@ -1389,12 +1389,12 @@ export class RiverWorld {
     });
     const eyeMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
 
-    const shellGeo = new THREE.SphereGeometry(0.68, 32, 24, 0, Math.PI * 2, 0, Math.PI * 0.55);
+    const shellGeo = new THREE.SphereGeometry(0.68, 20, 12, 0, Math.PI * 2, 0, Math.PI * 0.55);
     shellGeo.scale(1.0, 0.62, 1.28);
-    const rimGeo = new THREE.TorusGeometry(0.66, 0.072, 18, 44);
+    const rimGeo = new THREE.TorusGeometry(0.66, 0.072, 8, 28);
     rimGeo.rotateX(Math.PI / 2);
     rimGeo.scale(1.0, 1.28, 0.8);
-    const plastronGeo = new THREE.CylinderGeometry(0.58, 0.58, 0.08, 32);
+    const plastronGeo = new THREE.CylinderGeometry(0.58, 0.58, 0.08, 20);
     plastronGeo.scale(1.0, 1.0, 1.25);
 
     // Smooth curved turtle neck
@@ -1409,7 +1409,7 @@ export class RiverWorld {
       12,
       14
     );
-    const headGeo = new THREE.SphereGeometry(0.18, 24, 20);
+    const headGeo = new THREE.SphereGeometry(0.18, 14, 10);
     headGeo.scale(0.92, 0.85, 1.32);
 
     // Smooth hydrofoil paddle flipper shape (replaces old BoxGeometry)
@@ -1420,9 +1420,9 @@ export class RiverWorld {
     flipperShape.closePath();
     const flipperGeo = new THREE.ExtrudeGeometry(flipperShape, {
       depth: 0.032,
-      curveSegments: 24,
+      curveSegments: 10,
       bevelEnabled: true,
-      bevelSegments: 4,
+      bevelSegments: 2,
       bevelSize: 0.015,
       bevelThickness: 0.015,
     });
@@ -1431,8 +1431,8 @@ export class RiverWorld {
     const tailGeo = new THREE.ConeGeometry(0.06, 0.24, 12);
     tailGeo.rotateX(-Math.PI / 2.2);
 
-    const spotGeo = new THREE.SphereGeometry(0.05, 12, 12);
-    const eyeGeo = new THREE.SphereGeometry(0.036, 12, 12);
+    const spotGeo = new THREE.SphereGeometry(0.05, 6, 4);
+    const eyeGeo = new THREE.SphereGeometry(0.036, 6, 4);
 
     for (let dist = 140; dist < 2380; dist += 145) {
       const { position, normal, width } = getRiverPath(dist);
@@ -1528,10 +1528,10 @@ export class RiverWorld {
       depthWrite: false,
     });
 
-    const thoraxGeo = new THREE.SphereGeometry(0.082, 18, 16);
+    const thoraxGeo = new THREE.SphereGeometry(0.082, 10, 8);
     thoraxGeo.scale(0.85, 0.88, 1.38);
-    const eyeGeo = new THREE.SphereGeometry(0.05, 16, 16);
-    const segGeo = new THREE.CapsuleGeometry(0.024, 0.055, 8, 12);
+    const eyeGeo = new THREE.SphereGeometry(0.05, 8, 6);
+    const segGeo = new THREE.CapsuleGeometry(0.024, 0.055, 4, 6);
     segGeo.rotateX(Math.PI / 2);
 
     // Smooth elliptical dragonfly wing shape (replaces rectangular PlaneGeometry)
@@ -1617,23 +1617,23 @@ export class RiverWorld {
     });
     const eyeMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
 
-    const bodyGeo = new THREE.CapsuleGeometry(0.76, 1.32, 18, 28);
+    const bodyGeo = new THREE.CapsuleGeometry(0.76, 1.32, 8, 16);
     bodyGeo.rotateX(Math.PI / 2);
-    const rumpGeo = new THREE.SphereGeometry(0.77, 24, 20);
+    const rumpGeo = new THREE.SphereGeometry(0.77, 16, 12);
     rumpGeo.scale(1.02, 0.96, 1.05);
-    const neckGeo = new THREE.CapsuleGeometry(0.5, 0.45, 14, 20);
+    const neckGeo = new THREE.CapsuleGeometry(0.5, 0.45, 6, 12);
     neckGeo.rotateX(Math.PI / 3.2);
-    const headGeo = new THREE.SphereGeometry(0.52, 24, 22);
+    const headGeo = new THREE.SphereGeometry(0.52, 16, 12);
     headGeo.scale(0.84, 0.9, 1.25);
-    const snoutGeo = new THREE.SphereGeometry(0.38, 22, 20);
+    const snoutGeo = new THREE.SphereGeometry(0.38, 14, 10);
     snoutGeo.scale(0.88, 0.82, 0.95);
-    const nostrilGeo = new THREE.SphereGeometry(0.045, 10, 10);
-    const eyeGeo = new THREE.SphereGeometry(0.065, 14, 14);
-    const earGeo = new THREE.SphereGeometry(0.13, 16, 14);
+    const nostrilGeo = new THREE.SphereGeometry(0.045, 6, 4);
+    const eyeGeo = new THREE.SphereGeometry(0.065, 8, 6);
+    const earGeo = new THREE.SphereGeometry(0.13, 8, 6);
     earGeo.scale(0.75, 1.15, 0.9);
-    const upperLegGeo = new THREE.CapsuleGeometry(0.17, 0.35, 10, 16);
-    const lowerLegGeo = new THREE.CapsuleGeometry(0.12, 0.32, 10, 16);
-    const pawGeo = new THREE.SphereGeometry(0.15, 14, 12);
+    const upperLegGeo = new THREE.CapsuleGeometry(0.17, 0.35, 4, 8);
+    const lowerLegGeo = new THREE.CapsuleGeometry(0.12, 0.32, 4, 8);
+    const pawGeo = new THREE.SphereGeometry(0.15, 8, 6);
     pawGeo.scale(0.95, 0.55, 1.35);
 
     const capyDistances = [200, 580, 850, 1300, 1950, 2450];
@@ -1795,9 +1795,9 @@ export class RiverWorld {
     flipShape.closePath();
     const flipperGeo = new THREE.ExtrudeGeometry(flipShape, {
       depth: 0.035,
-      curveSegments: 24,
+      curveSegments: 10,
       bevelEnabled: true,
-      bevelSegments: 4,
+      bevelSegments: 2,
       bevelSize: 0.015,
       bevelThickness: 0.015,
     });
@@ -1813,15 +1813,15 @@ export class RiverWorld {
     flukeShape.closePath();
     const flukeGeo = new THREE.ExtrudeGeometry(flukeShape, {
       depth: 0.032,
-      curveSegments: 28,
+      curveSegments: 10,
       bevelEnabled: true,
-      bevelSegments: 4,
+      bevelSegments: 2,
       bevelSize: 0.014,
       bevelThickness: 0.014,
     });
     flukeGeo.rotateX(Math.PI / 2);
 
-    const eyeGeo = new THREE.SphereGeometry(0.048, 14, 14);
+    const eyeGeo = new THREE.SphereGeometry(0.048, 8, 6);
 
     const dSpots = [1720, 1980, 2220];
     dSpots.forEach((dist, idx) => {

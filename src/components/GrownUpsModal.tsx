@@ -68,6 +68,8 @@ interface GrownUpsModalProps {
   onSetLearning: (on: boolean) => void;
   profiles: ProfilesState;
   onRemoveProfile: (id: string) => void;
+  /** The other players' cloud backup has been saved this session. */
+  playersBackedUp?: boolean;
 }
 
 export const GrownUpsModal: React.FC<GrownUpsModalProps> = ({
@@ -98,6 +100,7 @@ export const GrownUpsModal: React.FC<GrownUpsModalProps> = ({
   onSetLearning,
   profiles,
   onRemoveProfile,
+  playersBackedUp = false,
 }) => {
   const [removing, setRemoving] = useState<string | null>(null);
   const firstName = profiles.list[0].name || 'the first player';
@@ -146,7 +149,8 @@ export const GrownUpsModal: React.FC<GrownUpsModalProps> = ({
 
           {!isFirst && (
             <p className="text-xs text-amber-200 leading-relaxed mb-2">
-              Cloud save is for {firstName}'s progress. This player's progress is saved on this device.
+              {firstName}'s progress syncs across devices. Other players are backed up while you're signed
+              in, so they come back if this device is ever reset.
             </p>
           )}
           {!user ? (
@@ -281,6 +285,7 @@ export const GrownUpsModal: React.FC<GrownUpsModalProps> = ({
                     <span className="font-semibold truncate">{p.name || 'New player'}</span>
                     {p.id === profiles.active && <span className="text-[11px] text-emerald-300">playing now</span>}
                     {i === 0 && <span className="text-[11px] text-sky-300">cloud save</span>}
+                    {i > 0 && user && playersBackedUp && <span className="text-[11px] text-sky-300">backed up</span>}
                   </span>
                   {i > 0 && p.id !== profiles.active && (
                     removing === p.id ? (

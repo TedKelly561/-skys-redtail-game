@@ -105,7 +105,7 @@ service cloud.firestore {
       ]) &&
       data.uid is string &&
       data.uid == request.auth.uid &&
-      isShortList(data.friends, 20) &&
+      isShortList(data.friends, 40) &&
       isShortList(data.closetOwned, 60) &&
       isValidCounter(data.closetSpent) &&
       isShortString(data.outfitHat, 40) &&
@@ -117,6 +117,30 @@ service cloud.firestore {
       isShortString(data.buddyName, 20) &&
       isShortString(data.buddyColor, 9) &&
       data.updatedAt == request.time;
+    }
+
+    // Pillar 4: Backups of the other players on the device (a cousin, a friend). Each slot is
+    // one player's saved game as text; empty when unused.
+    function isValidPlayerBackups(data) {
+      return data.keys().hasAll(['uid', 'p1', 'p2', 'p3', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'p1', 'p2', 'p3', 'updatedAt']) &&
+        data.uid is string &&
+        data.uid == request.auth.uid &&
+        isShortString(data.p1, 100000) &&
+        isShortString(data.p2, 100000) &&
+        isShortString(data.p3, 100000) &&
+        data.updatedAt == request.time;
+    }
+
+    // /playerBackups/{userId}
+    match /playerBackups/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if false;
+      allow create: if isOwner(userId) && isValidId(userId) && isValidPlayerBackups(incoming());
+      allow update: if isOwner(userId) && isValidId(userId) &&
+        isValidPlayerBackups(incoming()) &&
+        incoming().uid == existing().uid;
+      allow delete: if false;
     }
 
     // /userExtras/{userId}

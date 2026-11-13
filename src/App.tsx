@@ -25,7 +25,18 @@ import { LearningPrompt, loadLearningEnabled } from './game/learning';
 import { LearningCard } from './components/LearningCard';
 import { debugFlag } from './game/debugFlags';
 import { CloudExtras, applyExtrasLocally, collectLocalExtras, mergeExtras, sanitizeExtras } from './game/cloudExtras';
-import { ProfilesState, addProfile, isPrimaryProfile, loadProfiles, removeProfile, switchProfile, syncActiveProfileName } from './game/profiles';
+import {
+  ProfilesState,
+  addProfile,
+  collectOtherPlayers,
+  isPrimaryProfile,
+  loadProfiles,
+  packPlayer,
+  removeProfile,
+  restoreMissingPlayers,
+  switchProfile,
+  syncActiveProfileName,
+} from './game/profiles';
 import { PhotoAlbum, PhotoView } from './components/Photos';
 import { ClosetItem, ClosetSlot, ClosetState, loadCloset, saveCloset } from './game/closet';
 import { sound } from './game/audio';
@@ -41,6 +52,9 @@ import {
   saveUserProgress,
   loadUserExtras,
   saveUserExtras,
+  loadPlayerBackups,
+  savePlayerBackups,
+  MAX_BACKUP_CHARS,
 } from './services/firebaseAuthAndPoints';
 
 export default function App() {
@@ -177,6 +191,25 @@ export default function App() {
 
   // Friends, outfits, fish house, lake shortcut and buddy follow the player too (signed in).
   const lastExtrasRef = useRef<string>('');
+  // Backup of the other players (cousins, friends) while a grown-up is signed in.
+  const lastBackupRef = useRef<string>('');
+  const [playersBackedUp, setPlayersBackedUp] = useState(false);
+  const backupOtherPlayers = async (uid: string) => {
+    const packed = collectOtherPlayers().map((p) => packPlayer(p, MAX_BACKUP_CHARS));
+    const key = JSON.stringify(packed);
+    if (key === lastBackupRef.current) return;
+    if (await savePlayerBackups(uid, packed)) {
+      lastBackupRef.current = key;
+      setPlayersBackedUp(true);
+    }
+  };
+  const syncPlayerBackups = async (uid: string) => {
+    const saved = await loadPlayerBackups(uid);
+    if (saved === null) return; // rules not published yet, or offline
+    const restored = restoreMissingPlayers(saved);
+    if (restored) setProfiles(restored);
+    await backupOtherPlayers(uid);
+  };
   const applyMergedExtras = (merged: CloudExtras) => {
     const r = applyExtrasLocally(merged);
     setCloset(r.closet);
@@ -202,7 +235,8 @@ export default function App() {
     const unsubscribe = initAuth(
       async (authUser) => {
         setUser(authUser);
-        // Cloud save belongs to the first player on this device; other players stay local.
+        // Other players are backed up whoever is playing; full cloud save is the first player's.
+        syncPlayerBackups(authUser.uid).catch((err) => console.warn('Player backup failed:', err));
         if (!isPrimaryProfile()) return;
         try {
           const cloudData = await loadUserProgress(authUser.uid);
@@ -240,6 +274,20 @@ export default function App() {
     );
     return () => unsubscribe();
   }, []);
+
+  // Keep the other players' backup fresh while signed in (only sends when something changed).
+  useEffect(() => {
+    if (!user) return;
+    const id = window.setInterval(() => backupOtherPlayers(user.uid), 60000);
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') backupOtherPlayers(user.uid);
+    };
+    document.addEventListener('visibilitychange', onHide);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener('visibilitychange', onHide);
+    };
+  }, [user]);
 
   // Debounced cloud save of the extras whenever any of them change.
   const extrasTimerRef = useRef<number | null>(null);
@@ -849,7 +897,11 @@ export default function App() {
         difficulty={difficulty}
         onSetDifficulty={handleSetDifficulty}
         profiles={profiles}
-        onRemoveProfile={(id) => setProfiles(removeProfile(id))}
+        onRemoveProfile={(id) => {
+          setProfiles(removeProfile(id));
+          if (user) backupOtherPlayers(user.uid);
+        }}
+        playersBackedUp={playersBackedUp}
         learningOn={learningOn}
         onSetLearning={(on) => {
           setLearningOn(on);
