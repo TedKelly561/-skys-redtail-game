@@ -6,3 +6,6 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Game check results and failure screenshots (npm run check)
+scripts/checks/out/
