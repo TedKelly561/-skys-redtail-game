@@ -1,0 +1,1 @@
+{"base": "origin/main", "protectedFiles": ["firestore.rules", "firebase-applet-config.json", "public/sw.js", ".github/workflows/deploy-pages.yml"], "keyPattern": "['\"`](whiskers_[a-z0-9_]+)['\"`]", "keyDirs": ["src"], "playerKeysFile": "src/game/profiles.ts"}
