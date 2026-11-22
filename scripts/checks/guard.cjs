@@ -73,25 +73,19 @@ function extractKeys(content) {
 }
 
 // Helper to get keys from git tree for specific paths
+// Keys are tracked per file (file -> Set of keys): a key still present in
+// another file must not hide a rename or removal in the file that had it.
 function getKeysFromGit(paths) {
-  const allKeys = new Set();
-  if (paths.length === 0) return allKeys;
-  
-  // Get content for each file via git show
+  const byFile = new Map();
   paths.forEach(filePath => {
-    try {
-      const content = runGit(['show', `${baseRef}:${filePath}`]);
-      extractKeys(content).forEach(k => allKeys.add(k));
-    } catch (e) {
-      // Ignore errors for missing files in base if any
-    }
+    byFile.set(filePath, extractKeys(runGit(['show', `${baseRef}:${filePath}`])));
   });
-  return allKeys;
+  return byFile;
 }
 
 // Helper to get keys from disk by walking directories
 function getKeysFromDisk(dirs) {
-  const allKeys = new Set();
+  const byFile = new Map();
   
   function walk(currentDir) {
     const entries = fs.readdirSync(currentDir, { withFileTypes: true });
@@ -102,7 +96,9 @@ function getKeysFromDisk(dirs) {
       } else if (entry.isFile() && (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx'))) {
         try {
           const content = fs.readFileSync(fullPath, 'utf8');
-          extractKeys(content).forEach(k => allKeys.add(k));
+          // Same path style as git (forward slashes, relative to the repo root)
+          const rel = path.relative(process.cwd(), fullPath).split(path.sep).join('/');
+          byFile.set(rel, extractKeys(content));
         } catch (e) {
           // Ignore read errors
         }
@@ -115,7 +111,7 @@ function getKeysFromDisk(dirs) {
       walk(dir);
     }
   });
-  return allKeys;
+  return byFile;
 }
 
 // Get base keys
@@ -136,18 +132,24 @@ config.keyDirs.forEach(dir => {
   }
 });
 
-const baseKeys = getKeysFromGit(basePaths);
+const baseByFile = getKeysFromGit(basePaths);
 
 // Get working tree keys
-const workingTreeKeys = getKeysFromDisk(config.keyDirs);
+const workingByFile = getKeysFromDisk(config.keyDirs);
 
-// Find missing keys
-const missingKeys = [];
-baseKeys.forEach(key => {
-  if (!workingTreeKeys.has(key)) {
-    missingKeys.push(key);
-  }
+// A base key is missing if some file that had it no longer does
+const baseKeys = new Set();
+const missingSet = new Set();
+baseByFile.forEach((keys, file) => {
+  const now = workingByFile.get(file) || new Set();
+  keys.forEach(key => {
+    baseKeys.add(key);
+    if (!now.has(key)) {
+      missingSet.add(key);
+    }
+  });
 });
+const missingKeys = Array.from(missingSet);
 
 // Sort alphabetically
 missingKeys.sort();
