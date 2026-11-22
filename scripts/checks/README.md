@@ -20,6 +20,20 @@ npx playwright install chromium
 `npm run check` starts the game's dev server by itself on port 3123 (set `CHECK_PORT` to change
 it). To use a dev server that is already running, add `--url=http://127.0.0.1:3000/`.
 
+## Guard: protected files and saved-game keys
+
+```bash
+npm run guard                     # compares your changes with origin/main
+npm run guard -- --base=<ref>     # compare with another branch or commit
+```
+
+It fails (exit 1) if a change touches `firestore.rules`, `firebase-applet-config.json`,
+`public/sw.js` or `.github/workflows/deploy-pages.yml`, or removes or renames a saved-game key
+(`whiskers_...` strings in `src/`, compared file by file) or a `PLAYER_KEYS` entry. Renaming a key
+would wipe the kids' saved progress. Moving a key string to another file is flagged too: check it
+by hand. Settings are in `guard.config.json`. Exit 2 means git itself failed (for example, an
+unknown base). Run `git fetch origin` first so `origin/main` is current.
+
 ## Reading the result
 
 - Each check prints `PASS` or `FAIL` with a short reason, and a line about what it saw.
