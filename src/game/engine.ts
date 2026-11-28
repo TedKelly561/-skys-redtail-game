@@ -171,7 +171,7 @@ export class GameEngine {
   private renderer: THREE.WebGLRenderer;
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
-  private clock: THREE.Clock;
+  private clock: THREE.Timer;
   private isSoftwareGl: boolean = false;
   private frameId: number = 0;
   private isRunning: boolean = false;
@@ -328,7 +328,7 @@ export class GameEngine {
   constructor(container: HTMLElement, callbacks: GameCallbacks) {
     this.container = container;
     this.callbacks = callbacks;
-    this.clock = new THREE.Clock();
+    this.clock = new THREE.Timer(); // THREE.Clock is deprecated in r187
 
     this.isSoftwareGl = (() => {
       const gl = document.createElement('canvas').getContext('webgl2');
@@ -940,10 +940,10 @@ export class GameEngine {
       // Frame time from the browser's own frame clock (steadier than reading the time inside
       // the frame), smoothed a little so a slightly late frame doesn't make the river jump.
       // On slower or battery-saving laptops (30 frames a second) this keeps the glide even.
+      this.clock.update(stamp); // keeps the title screen's gentle bob in step
       let rawDt: number;
       if (typeof stamp === 'number' && lastStamp >= 0) {
         rawDt = Math.max(0, (stamp - lastStamp) / 1000);
-        this.clock.getDelta(); // keep the clock in step
       } else {
         rawDt = this.clock.getDelta();
       }
@@ -1273,7 +1273,7 @@ export class GameEngine {
   }
 
   private updateTitleMode(dt: number) {
-    const time = this.clock.getElapsedTime();
+    const time = this.clock.getElapsed();
     const dist = 60 + Math.sin(time * 0.2) * 12;
     const { position, tangent } = getRiverPath(dist);
 
