@@ -34,6 +34,24 @@ would wipe the kids' saved progress. Moving a key string to another file is flag
 by hand. Settings are in `guard.config.json`. Exit 2 means git itself failed (for example, an
 unknown base). Run `git fetch origin` first so `origin/main` is current.
 
+## Quick data checks (seconds, no browser)
+
+```bash
+npm run ids                       # FRIENDS, CLOSET_ITEMS, HOUSE_ITEMS and PLAYER_KEYS have no duplicate ids,
+                                  # and FRIENDS matches the FriendKind type
+npm run kidtext                   # tips, read-aloud lines and popups: 14 words or fewer, no banned words
+npm run kidtext -- --report       # list findings but always exit 0
+```
+
+The banned words are in `kid-text-banned.txt` (approved by Ted). They match whole words only, so
+"war" doesn't match "reward". `kidtext` reads calls whose first argument is a plain string. Text
+built in a variable or a ternary isn't scanned, so read those lines yourself.
+
+## On GitHub
+
+Every pull request runs `ids`, `kidtext` and the full `npm run check` (`.github/workflows/checks.yml`).
+When a check fails, the run keeps the screenshots as a downloadable "check-results" file.
+
 ## Reading the result
 
 - Each check prints `PASS` or `FAIL` with a short reason, and a line about what it saw.
