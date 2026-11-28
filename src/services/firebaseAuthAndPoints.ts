@@ -256,7 +256,9 @@ export async function saveUserExtras(
  * the playerBackups block in firestore.rules.
  */
 const BACKUP_SLOTS = ['p1', 'p2', 'p3'] as const;
-export const MAX_BACKUP_CHARS = 100000;
+import { MAX_BACKUP_CHARS } from './cloudLimits';
+
+export { MAX_BACKUP_CHARS };
 
 export async function loadPlayerBackups(uid: string): Promise<string[] | null> {
   try {

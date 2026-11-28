@@ -57,7 +57,7 @@ import {
   loadPlayerBackups,
   savePlayerBackups,
   MAX_BACKUP_CHARS,
-} from './services/firebaseAuthAndPoints';
+} from './services/cloud';
 
 export default function App() {
   const mountRef = useRef<HTMLDivElement>(null);
