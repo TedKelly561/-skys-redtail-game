@@ -1,0 +1,43 @@
+# Plays the game in a hidden browser on every pull request (npm run check), plus the quick
+# data checks. A failed check uploads the screenshots so you can see what went wrong.
+# Separate from deploy-pages.yml, which builds and publishes the game.
+name: Game checks
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install
+        run: bun install --frozen-lockfile
+      - name: Id lists (npm run ids)
+        run: node scripts/checks/unique-ids.cjs
+      - name: Kid-friendly text (npm run kidtext)
+        run: node scripts/checks/kid-text.cjs
+      - name: Install Chromium for the checks
+        run: npx playwright install --with-deps chromium
+      - name: Game checks (npm run check)
+        run: node scripts/checks/run.cjs
+      - name: Save screenshots of failed checks
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: check-results
+          path: scripts/checks/out/
+          if-no-files-found: ignore
