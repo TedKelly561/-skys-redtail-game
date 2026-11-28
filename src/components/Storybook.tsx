@@ -13,10 +13,12 @@ interface StorybookProps {
   /** Reached the Grand Lake: the story ends with "The End". */
   finished: boolean;
   onClose: () => void;
+  /** Opened from the pause menu: the last page's button closes the book and swims on. */
+  onKeepSwimming?: () => void;
 }
 
 /** A read-aloud picture book of Whiskers' trip, one page at a time. */
-export const Storybook: React.FC<StorybookProps> = ({ trip, playerName, stickers, photos, finished, onClose }) => {
+export const Storybook: React.FC<StorybookProps> = ({ trip, playerName, stickers, photos, finished, onClose, onKeepSwimming }) => {
   // Photos taken during this trip (newest first in the album).
   const tripPhotos = useMemo(() => photos.filter((p) => p.at >= trip.startedAt).slice(0, 4), [photos, trip.startedAt]);
   const pages: StoryPage[] = useMemo(
@@ -33,6 +35,16 @@ export const Storybook: React.FC<StorybookProps> = ({ trip, playerName, stickers
   }, [page]);
 
   const turn = (step: number) => setIndex((i) => Math.max(0, Math.min(pages.length - 1, i + step)));
+
+  // Laptop: the arrow keys turn the pages.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code === 'ArrowRight') setIndex((i) => Math.min(pages.length - 1, i + 1));
+      else if (e.code === 'ArrowLeft') setIndex((i) => Math.max(0, i - 1));
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [pages.length]);
 
   return (
     <div className="absolute inset-0 z-50 bg-slate-950/75 flex items-center justify-center p-3 sm:p-6 select-none">
@@ -80,10 +92,10 @@ export const Storybook: React.FC<StorybookProps> = ({ trip, playerName, stickers
           {last && (
             <div className="mt-6 w-full flex flex-col gap-2">
               <button
-                onClick={onClose}
+                onClick={onKeepSwimming ?? onClose}
                 className="w-full py-3 rounded-3xl bg-gradient-to-b from-emerald-400 to-emerald-600 border-4 border-white text-white text-xl font-black shadow-lg cursor-pointer active:scale-95"
               >
-                {finished ? 'Close the book 💛' : 'Keep swimming'}
+                {onKeepSwimming ? 'Keep swimming' : 'Close the book 💛'}
               </button>
               <button
                 onClick={() => setIndex(0)}

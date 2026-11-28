@@ -208,14 +208,23 @@ export function packPlayer(b: PlayerBackup, maxChars: number): string {
   return text;
 }
 
+/** Names compare without case or extra spaces: "Maya" and " maya" are the same child. */
+const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
 /**
  * Bring back players from the cloud backup who aren't on this device (a new or reset device).
  * Players already here keep what they have; players a grown-up removed stay removed.
+ * A player is "already here" by id, or by name: each device makes its own ids, so the cousin
+ * added separately on the laptop and on the iPad has two ids but is one child.
  * Returns the new profile list, or null if nothing changed.
  */
 export function restoreMissingPlayers(packed: string[]): ProfilesState | null {
   const state = loadProfiles();
   const removed = removedIds();
+  const active = currentName();
+  const nameHere = (name: string) =>
+    name.trim() !== '' &&
+    (state.list.some((p) => sameName(p.name, name)) || (active !== '' && sameName(active, name)));
   let changed = false;
   for (const text of packed) {
     if (state.list.length >= MAX_PROFILES) break;
@@ -227,6 +236,7 @@ export function restoreMissingPlayers(packed: string[]): ProfilesState | null {
     }
     if (!b || typeof b.id !== 'string' || !/^p[a-z0-9]{1,20}$/i.test(b.id)) continue;
     if (state.list.some((p) => p.id === b.id) || removed.includes(b.id)) continue;
+    if (typeof b.name === 'string' && nameHere(b.name)) continue;
     const data = b.data && typeof b.data === 'object' ? b.data : {};
     for (const key of PLAYER_KEYS) {
       const v = typeof data[key] === 'string' ? data[key] : null;

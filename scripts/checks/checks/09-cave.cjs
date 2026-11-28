@@ -4,7 +4,7 @@ const { assert, assertNoPageErrors, openGame } = require('../lib.cjs');
 // open the chest (Crystal Crown), and swim back out through the ring.
 module.exports = {
   name: 'cave',
-  about: 'Lake cave: enter, 12 crystals, turtle ride, Crystal Crown, exit back to the lake.',
+  about: 'Lake cave: enter (stops hide-and-seek), Sniff points to crystals, 12 crystals, turtle ride, Crystal Crown, exit.',
   async run({ browser, baseUrl, note, track }) {
     const { page, errors } = await openGame(browser, baseUrl, { storage: { whiskers_lake_unlocked: 'true' } });
     track(page);
@@ -12,14 +12,22 @@ module.exports = {
     await page.waitForTimeout(1000);
     const entered = await page.evaluate(() => {
       const e = window.__whiskers;
+      // Playing hide-and-seek with Pip when diving in: the cave stops it.
+      e.startHideAndSeek();
+      const pipStarted = e.hideSeek.active;
       const c = e.cave.entrancePos;
       e.caveCooldown = 0;
       e.player.group.position.set(c.x, c.y + 1.0, c.z);
       e.forwardSpeed = 0;
       e.updateLakeSwim(0.016, 0, -1, false);
-      return e.inCave;
+      // Sniff in the cave: a sparkle trail toward a crystal.
+      let sparkles = 0;
+      const trail = e.cave.showDirection(e.player.group.position, () => sparkles++);
+      return { inCave: e.inCave, pipStarted, pipStopped: !e.hideSeek.active, trail: trail && sparkles === 6 };
     });
-    assert(entered, 'diving onto the glowing ring did not enter the cave');
+    assert(entered.inCave, 'diving onto the glowing ring did not enter the cave');
+    assert(entered.pipStarted && entered.pipStopped, `Pip's hide-and-seek: started ${entered.pipStarted}, stopped in the cave ${entered.pipStopped}`);
+    assert(entered.trail, 'Sniff in the cave did not point to a crystal');
     await page.waitForFunction(() => /💎 0\/12/.test(document.body.innerText) && document.body.innerText.includes('Back to the lake'), null, { timeout: 15000 });
     const crystals = await page.evaluate(() => {
       const e = window.__whiskers;

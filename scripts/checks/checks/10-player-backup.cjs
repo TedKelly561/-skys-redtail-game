@@ -4,7 +4,7 @@ const { assert, assertNoPageErrors, openGame } = require('../lib.cjs');
 // players removed, ignore bad data. Pure logic: no cloud is touched.
 module.exports = {
   name: 'player-backup',
-  about: "Other players' backup: restore on a fresh device; removed players stay removed.",
+  about: "Other players' backup: restore on a fresh device, no same-name copies; removed players stay removed.",
   async run({ browser, baseUrl, note, track }) {
     const { page, errors } = await openGame(browser, baseUrl);
     track(page);
@@ -30,6 +30,10 @@ module.exports = {
       pr.removeProfile('pabc123');
       out.afterRemove = !!pr.restoreMissingPlayers(packed);
       out.badData = !!pr.restoreMissingPlayers(['not json', JSON.stringify({ id: '../evil', data: {} })]);
+      // Another device where the cousin was added separately (a different id, same name).
+      localStorage.clear();
+      localStorage.setItem('whiskers_profiles_v1', JSON.stringify({ active: 'p1', list: [{ id: 'p1', name: 'Skylar', color: '#22c55e' }, { id: 'pipad1', name: 'maya ', color: '#f472b6' }] }));
+      out.sameName = !!pr.restoreMissingPlayers(packed);
       localStorage.clear();
       return out;
     });
@@ -39,7 +43,8 @@ module.exports = {
     assert(!r.again, 'restoring twice changed something');
     assert(!r.afterRemove, 'a removed player came back');
     assert(!r.badData, 'bad backup data was accepted');
-    note('restore, no double restore, removed stays removed, bad data ignored');
+    assert(!r.sameName, 'the cousin was added twice on a device that already had her (same name, other id)');
+    note('restore, no double restore, no same-name copy, removed stays removed, bad data ignored');
     assertNoPageErrors(errors);
     await page.close();
   },

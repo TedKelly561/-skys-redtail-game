@@ -13,11 +13,20 @@ export const GHOST_FINISH = 300;
 const KEY = 'whiskers_ghost_v1';
 const SAMPLE = 0.1; // seconds between recorded positions
 const MAX_TIME = 180; // give up quietly if a run takes longer than this
+// Reused every frame (no new objects per frame).
+const _ghostA = { d: 0, l: 0, y: 0 };
+const _ghostB = { d: 0, l: 0, y: 0 };
 
 interface GhostRun {
   time: number;
   name: string;
   color: string;
+  /**
+   * Whiskers' Zoom speed when the run was swum. Pace and Tricky change how fast he swims, so
+   * times are compared, and the ghost is played back, as if both swam at the same speed.
+   * Older runs don't have it and count as the same speed.
+   */
+  k?: number;
   /** Flattened [distance*10, lateral*10, depth*100] every SAMPLE seconds. */
   s: number[];
 }
@@ -32,7 +41,8 @@ function parseRun(text: string | null): GhostRun | null {
     const r = JSON.parse(text);
     if (!r || typeof r.time !== 'number' || !Array.isArray(r.s) || r.s.length < 6) return null;
     if (!r.s.every((v: unknown) => typeof v === 'number' && Number.isFinite(v))) return null;
-    return { time: r.time, name: typeof r.name === 'string' ? r.name : '', color: typeof r.color === 'string' ? r.color : '#ffffff', s: r.s };
+    const k = typeof r.k === 'number' && Number.isFinite(r.k) && r.k > 0 ? r.k : undefined;
+    return { time: r.time, name: typeof r.name === 'string' ? r.name : '', color: typeof r.color === 'string' ? r.color : '#ffffff', k, s: r.s };
   } catch {
     return null;
   }
@@ -81,6 +91,8 @@ export class GhostRace {
   private ghostDisposables: { dispose: () => void }[] = [];
   private ghostDist = GHOST_START;
   private doneTimer = 0;
+  /** Zoom speed for this race, fixed at the start line. */
+  private speed = 1;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -93,6 +105,11 @@ export class GhostRace {
     this.removeGhost();
   }
 
+  /** A run's time as if it had been swum at this race's speed. */
+  private fairTime(run: GhostRun): number {
+    return (run.time * (run.k ?? this.speed)) / this.speed;
+  }
+
   /** The fastest run by another player on this device, else this player's own best. */
   private pickRival(): { run: GhostRun; own: boolean } | null {
     let best: GhostRun | null = null;
@@ -101,7 +118,7 @@ export class GhostRace {
       if (!run) continue;
       run.name = profile.name || run.name || 'Your friend';
       run.color = profile.color || run.color;
-      if (!best || run.time < best.time) best = run;
+      if (!best || this.fairTime(run) < this.fairTime(best)) best = run;
     }
     if (best) return { run: best, own: false };
     const own = loadOwnBest();
@@ -163,7 +180,8 @@ export class GhostRace {
     dist: number,
     lateral: number,
     depth: number,
-    whiskers: THREE.Object3D
+    whiskers: THREE.Object3D,
+    zoomSpeed = 1
   ): { event: GhostEvent | null; progress: RaceProgress | null } {
     let event: GhostEvent | null = null;
     const span = GHOST_FINISH - GHOST_START;
@@ -171,6 +189,7 @@ export class GhostRace {
     if (this.state === 'waiting') {
       if (prevDist < GHOST_START && dist >= GHOST_START && dist < GHOST_START + 20) {
         this.state = 'racing';
+        this.speed = zoomSpeed > 0 ? zoomSpeed : 1;
         this.time = 0;
         this.sampleTimer = 0;
         this.recording = [];
@@ -193,16 +212,16 @@ export class GhostRace {
         this.record(dist, lateral, depth);
         const time = Math.round(this.time * 10) / 10;
         const own = loadOwnBest();
-        const record = !own || time < own.time;
+        const record = !own || time < this.fairTime(own);
         if (record) {
           const me = activeProfile();
           try {
-            localStorage.setItem(KEY, JSON.stringify({ time, name: me.name, color: me.color, s: this.recording }));
+            localStorage.setItem(KEY, JSON.stringify({ time, k: this.speed, name: me.name, color: me.color, s: this.recording }));
           } catch {
             // storage full: the race still counts
           }
         }
-        const rivalTime = this.rival ? this.rival.time : null;
+        const rivalTime = this.rival ? Math.round(this.fairTime(this.rival) * 10) / 10 : null;
         const won = rivalTime === null || time < rivalTime;
         event = { type: 'finish', time, rivalTime, rival: this.rival ? this.rival.name : null, won, own: this.rivalOwn, record };
         this.state = 'done';
@@ -218,10 +237,12 @@ export class GhostRace {
 
     // Move the ghost along its recorded path.
     if (this.ghost && this.rival) {
-      const a = { d: 0, l: 0, y: 0 };
-      const b = { d: 0, l: 0, y: 0 };
-      this.rivalAt(this.time, a);
-      this.rivalAt(this.time + 0.2, b);
+      const a = _ghostA;
+      const b = _ghostB;
+      // A ghost swum at a faster setting plays back slower, and the other way round.
+      const t = (this.time * this.speed) / (this.rival.k ?? this.speed);
+      this.rivalAt(t, a);
+      this.rivalAt(t + 0.2, b);
       this.ghostDist = a.d;
       const pa = getRiverPath(a.d);
       const pb = getRiverPath(b.d);

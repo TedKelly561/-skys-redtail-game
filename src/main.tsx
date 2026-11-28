@@ -13,9 +13,12 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
       .register(`${import.meta.env.BASE_URL}sw.js`)
       .then(() => navigator.serviceWorker.ready)
       .then((reg) => {
-        const page = location.href.split('#')[0];
-        const files = performance.getEntriesByType('resource').map((e) => e.name);
-        reg.active?.postMessage({ type: 'cache-these', urls: [page, ...files] });
+        // Wait a little so files that load just after start (sign-in and cloud save) are saved too.
+        window.setTimeout(() => {
+          const page = location.href.split('#')[0];
+          const files = performance.getEntriesByType('resource').map((e) => e.name);
+          reg.active?.postMessage({ type: 'cache-these', urls: [page, ...files] });
+        }, 5000);
       })
       .catch(() => {
         // The game works fine without it.
