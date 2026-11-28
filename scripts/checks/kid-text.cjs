@@ -28,13 +28,15 @@ function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// Build banned regexes
-const bannedRegexes = bannedEntries.map(entry => {
-  // Replace spaces with \s+ for matching any whitespace run
-  const escapedEntry = escapeRegex(entry).replace(/\\ /g, '\\s+');
-  // Use lookbehind/lookahead to ensure whole word match (letters/digits)
-  return new RegExp('(?<![\p{L}\p{N}])' + escapedEntry + '(?![\p{L}\p{N}])', 'iu');
-});
+// One banned entry as a whole-word pattern: "war" must not match "reward" or "warm".
+// The \\p{...} escapes need doubled backslashes inside a string, or JavaScript drops them.
+// Spaces inside an entry ("shut up") match any run of whitespace.
+function wholeWordRegex(entry) {
+  const body = escapeRegex(entry).replace(/ +/g, '\\s+');
+  return new RegExp('(?<![\\p{L}\\p{N}])' + body + '(?![\\p{L}\\p{N}])', 'iu');
+}
+
+const bannedRegexes = bannedEntries.map(wholeWordRegex);
 
 // Scan src/game/*.ts
 const gameDir = path.join(process.cwd(), 'src', 'game');
@@ -126,17 +128,12 @@ for (const file of files) {
     }
 
     // Check banned words
-    for (const regex of bannedRegexes) {
+    bannedRegexes.forEach((regex, k) => {
       if (regex.test(displayText)) {
         totalBanned++;
-        // Find the entry that matched to report it
-        const entry = bannedEntries.find(e => {
-          const r = new RegExp('(?<![\p{L}\p{N}])' + escapeRegex(e).replace(/\\ /g, '\\s+') + '(?![\p{L}\p{N}])', 'iu');
-          return r.test(displayText);
-        });
-        findings.push(`${filePath}:${lineNumber}  banned "${entry}"  "${displayText}"`);
+        findings.push(`${filePath}:${lineNumber}  banned "${bannedEntries[k]}"  "${displayText}"`);
       }
-    }
+    });
   }
 }
 
