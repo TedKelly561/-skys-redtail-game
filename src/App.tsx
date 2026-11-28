@@ -20,7 +20,7 @@ import { FishHouseRoom } from './components/FishHouseRoom';
 import { HouseItem, HouseState, HouseView, loadHouse, saveHouse } from './game/house';
 import { BuddyLook, loadBuddy, saveBuddy } from './game/buddy';
 import { Photo, framePhoto, loadAlbum, saveAlbum } from './game/photos';
-import { Trip, loadTrip } from './game/storybook';
+import { Trip, loadTrip, metersSwum, tripHasStory } from './game/storybook';
 import { Storybook } from './components/Storybook';
 import { SeasonSetting, loadSeasonSetting } from './game/seasons';
 import { LearningPrompt, loadLearningEnabled } from './game/learning';
@@ -141,8 +141,9 @@ export default function App() {
 
   // Storybook of the trip: pops up at the Grand Lake, and opens from the title or pause menu.
   const [story, setStory] = useState<{ trip: Trip; finished: boolean } | null>(null);
+  const isStoryOpen = story !== null;
   const [storyShownAtLake, setStoryShownAtLake] = useState(false);
-  const [hasStory, setHasStory] = useState<boolean>(() => (loadTrip()?.distance ?? 0) > 0);
+  const [hasStory, setHasStory] = useState<boolean>(() => tripHasStory(loadTrip()));
   const openStory = (finished?: boolean) => {
     const engine = engineRef.current;
     const trip = engine ? engine.getTrip() : loadTrip();
@@ -156,6 +157,16 @@ export default function App() {
     setStory(null);
     setHasStory(true);
   };
+  // "Keep swimming" on the last page of a book opened from the pause menu: back to the river.
+  const keepSwimming = () => {
+    closeStory();
+    if (engineRef.current?.gameState === 'paused') engineRef.current.resumeGame();
+  };
+  // Back on the title: show the Storybook button if the last swim has a story.
+  useEffect(() => {
+    // The saved copy (getTrip would save the engine's blank trip on a first visit).
+    if (gameState === 'title') setHasStory(tripHasStory(loadTrip()));
+  }, [gameState]);
   useEffect(() => {
     if (gameState !== 'victory') {
       setStoryShownAtLake(false);
@@ -164,7 +175,7 @@ export default function App() {
     // After the family celebration, open the book (only when the river was actually swum).
     const t = window.setTimeout(() => {
       const trip = engineRef.current?.getTrip();
-      if (trip && trip.reachedLake && trip.distance > 0) {
+      if (trip && trip.reachedLake && metersSwum(trip) > 0) {
         setStoryShownAtLake(true);
         openStory(true);
       }
@@ -434,12 +445,14 @@ export default function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (isTyping(e)) return;
       const engine = engineRef.current;
-      if (!engine || isGrownUpsOpen || isDailyMissionsOpen || isFriendsOpen || isShopOpen) {
+      // While a panel or the storybook is open, keys don't steer, start or resume the game.
+      if (!engine || isGrownUpsOpen || isDailyMissionsOpen || isFriendsOpen || isShopOpen || isStoryOpen) {
         if (e.code === 'Escape') {
           setIsDailyMissionsOpen(false);
           setIsGrownUpsOpen(false);
           setIsFriendsOpen(false);
           closeShop();
+          if (isStoryOpen) closeStory();
         }
         return;
       }
@@ -513,7 +526,7 @@ export default function App() {
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleWindowBlur);
     };
-  }, [gameState, isGrownUpsOpen, isDailyMissionsOpen, isFriendsOpen, isShopOpen]);
+  }, [gameState, isGrownUpsOpen, isDailyMissionsOpen, isFriendsOpen, isShopOpen, isStoryOpen]);
 
   const handleLogin = async () => {
     setIsLoggingIn(true);
@@ -939,6 +952,7 @@ export default function App() {
           photos={photos}
           finished={story.finished}
           onClose={closeStory}
+          onKeepSwimming={!story.finished && gameState === 'paused' ? keepSwimming : undefined}
         />
       )}
 

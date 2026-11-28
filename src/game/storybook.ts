@@ -1,4 +1,5 @@
 import { FriendKind, friendName } from './friends';
+import { CAVE_CRYSTALS } from './cave';
 
 /**
  * Storybook: Whiskers' trip is written down as it happens (friends met, brave moments, races,
@@ -30,7 +31,12 @@ export interface Trip {
   startTreasures: number;
   stars: number;
   treasures: number;
+  /** Furthest point reached on the river (river position, not meters swum). */
   distance: number;
+  /** Where on the river the swim began, so "Pick a place" swims count only what was swum. */
+  startDistance?: number;
+  /** Began with the title's Grand Lake shortcut (no river swim). */
+  atLake?: boolean;
   seconds: number;
   friends: FriendKind[];
   moments: Partial<Record<MomentKind, number>>;
@@ -39,7 +45,7 @@ export interface Trip {
   reachedLake: boolean;
 }
 
-export function newTrip(stars: number, treasures: number): Trip {
+export function newTrip(stars: number, treasures: number, startDistance = 0): Trip {
   return {
     startedAt: Date.now(),
     startStars: stars,
@@ -47,6 +53,7 @@ export function newTrip(stars: number, treasures: number): Trip {
     stars,
     treasures,
     distance: 0,
+    startDistance,
     seconds: 0,
     friends: [],
     moments: {},
@@ -63,6 +70,17 @@ export function loadTrip(): Trip | null {
   } catch {
     return null;
   }
+}
+
+/** Meters actually swum down the river on this trip. */
+export function metersSwum(trip: Trip): number {
+  return Math.max(0, Math.round(trip.distance - (trip.startDistance ?? 0)));
+}
+
+/** Something to tell: a river swim, or a lake visit with friends or moments in it. */
+export function tripHasStory(trip: Trip | null): boolean {
+  if (!trip) return false;
+  return metersSwum(trip) > 0 || (!!trip.atLake && (trip.friends.length > 0 || Object.keys(trip.moments).length > 0));
 }
 
 export function saveTrip(trip: Trip) {
@@ -101,14 +119,18 @@ export function storyPages(trip: Trip, playerName: string, photoCount: number, f
     { emoji: '📖', title: `${who}' River Adventure`, text: `A story from ${date}.`, big: true },
   ];
 
-  const meters = Math.round(trip.distance);
-  pages.push({
-    emoji: trip.reachedLake ? '🏝️' : '🌊',
-    title: 'The big swim',
-    text: trip.reachedLake
-      ? `Whiskers swam ${meters} meters down the river, all the way home to the Grand Lake!`
-      : `Whiskers swam ${meters} meters down the river.`,
-  });
+  const meters = metersSwum(trip);
+  if (meters > 0) {
+    pages.push({
+      emoji: trip.reachedLake ? '🏝️' : '🌊',
+      title: 'The big swim',
+      text: trip.reachedLake
+        ? `Whiskers swam ${meters} meters down the river, all the way home to the Grand Lake!`
+        : `Whiskers swam ${meters} meters down the river.`,
+    });
+  } else if (trip.atLake) {
+    pages.push({ emoji: '🏝️', title: 'At the Grand Lake', text: 'Whiskers played at the Grand Lake with the family.' });
+  }
 
   const friends = trip.friends.filter((f) => f !== 'rainbow');
   if (friends.length > 0) {
@@ -158,7 +180,10 @@ export function storyPages(trip: Trip, playerName: string, photoCount: number, f
 
   if (m.cave) {
     const cave: string[] = ['swam into the glowing cave under the lake'];
-    if (m.crystal) cave.push(m.crystal === 1 ? 'found a sparkly crystal' : `found ${m.crystal} sparkly crystals`);
+    // Crystals come back on every visit, so two visits can't mean "24 crystals".
+    const crystals = Math.min(m.crystal || 0, CAVE_CRYSTALS);
+    if (crystals === CAVE_CRYSTALS) cave.push(`found all ${CAVE_CRYSTALS} sparkly crystals`);
+    else if (crystals > 0) cave.push(crystals === 1 ? 'found a sparkly crystal' : `found ${crystals} sparkly crystals`);
     if (m.turtleRide) cave.push("rode on Grandpa Turtle's back");
     pages.push({ emoji: '💎', title: 'The glowing cave', text: `Whiskers ${listJoin(cave)}.` });
   }

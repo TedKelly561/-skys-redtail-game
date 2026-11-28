@@ -19,9 +19,10 @@ module.exports = {
     });
     track(page);
     // Swim the course at a steady speed by calling the race directly.
-    const run = (speed, lateral) =>
+    // zoom: Whiskers' Zoom speed setting for the run (Tricky is 1.3 times faster).
+    const run = (speed, lateral, zoom = 1) =>
       page.evaluate(
-        ({ speed, lateral }) => {
+        ({ speed, lateral, zoom }) => {
           const e = window.__whiskers;
           e.pauseGame();
           const gr = e.ghostRace;
@@ -32,7 +33,7 @@ module.exports = {
           let t = 0;
           let bar = null;
           while (t < 200) {
-            const r = gr.update(0.05, prev, d, lateral, -1.5, e.player.group);
+            const r = gr.update(0.05, prev, d, lateral, -1.5, e.player.group, zoom);
             if (r.event) events.push(r.event);
             if (r.progress && !bar && r.progress.whiskers > 0.5) bar = r.progress;
             if (gr.state === 'done') break;
@@ -42,7 +43,7 @@ module.exports = {
           }
           return { finish: events.find((x) => x.type === 'finish'), start: events.find((x) => x.type === 'start'), bar };
         },
-        { speed, lateral }
+        { speed, lateral, zoom }
       );
     const first = await run(5, 2);
     assert(first.start && first.start.rival === null, 'first run should have no ghost to race');
@@ -57,6 +58,13 @@ module.exports = {
     assert(slower.finish && !slower.finish.won, 'slower run should lose to the ghost');
     const faster = await run(6.5, -2);
     assert(faster.finish && faster.finish.won && faster.finish.record, 'faster run should win and set a record');
+    // Fair across settings: on Tricky (1.3 times faster), a quicker clock time can still lose,
+    // because Skylar swam her run at the normal speed.
+    const tricky = await run(6, -2, 1.3);
+    assert(tricky.finish && !tricky.finish.won, `a Tricky run that is slower for its speed should lose (${tricky.finish && tricky.finish.time} s vs ${tricky.finish && tricky.finish.rivalTime} s)`);
+    assert(!tricky.finish.record, 'a Tricky run slower for its speed should not beat the normal-speed best');
+    const trickyWin = await run(7, -2, 1.3);
+    assert(trickyWin.finish && trickyWin.finish.won, 'a Tricky run that is faster for its speed should win');
     // In the real game loop: crossing the start buoys starts the race and shows the race bar.
     await page.evaluate(() => {
       const e = window.__whiskers;
@@ -65,7 +73,10 @@ module.exports = {
     });
     await page.waitForFunction(() => window.__whiskers.ghostRace.state === 'racing', null, { timeout: 30000 });
     await page.waitForFunction(() => document.body.innerText.includes('🏁'), null, { timeout: 15000 });
-    note(`Skylar ${first.finish.time} s; Maya ${slower.finish.time} s (lost), ${faster.finish.time} s (won); live race bar shown`);
+    note(
+      `Skylar ${first.finish.time} s; Maya ${slower.finish.time} s (lost), ${faster.finish.time} s (won); ` +
+        `on Tricky ${tricky.finish.time} s lost to ${tricky.finish.rivalTime} s, ${trickyWin.finish.time} s won; live race bar shown`
+    );
     assertNoPageErrors(errors);
     await page.close();
   },

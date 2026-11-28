@@ -29,8 +29,11 @@ import { Fireflies } from './fireflies';
 import { music } from './music';
 import { DolphinRace, HideAndSeek, RaceProgress } from './minigames';
 import { GhostRace } from './ghostRace';
-import { LakeCave } from './cave';
-import { MomentKind, Trip, loadTrip, newTrip, saveTrip } from './storybook';
+import { CAVE_CRYSTALS, LakeCave } from './cave';
+import { MomentKind, Trip, loadTrip, newTrip, saveTrip, tripHasStory } from './storybook';
+
+/** A story older than this isn't continued (by Continue or the lake shortcut). */
+const TRIP_KEEP_MS = 3 * 24 * 3600 * 1000;
 import { FIN_COLORS, Outfit, buildAccessory, loadCloset } from './closet';
 import { WaterLook, addCaustics, createShorelineFoam, createWaterLook } from './water';
 import { AdaptiveResolution, DistanceStreamer, downgradePhysicalMaterials } from './perf';
@@ -59,6 +62,7 @@ const PLACE_KEY = 'whiskers_last_place';
 const SHADOWS_OFF_KEY = 'whiskers_shadows_off';
 const RAINBOW_COLORS = ['#ff4d4d', '#ff9f1a', '#ffe14d', '#4dff88', '#4dc3ff', '#9b6bff', '#ff6bd6'];
 const CONFETTI = ['#ff4d8d', '#ffd23f', '#4de3ff', '#7dff6b', '#c58bff', '#ffffff'];
+const CAVE_SNIFF_COLORS = ['#5ef2ff', '#ffffff', '#ff7ad9'];
 const SPARKLE_COLORS: Record<string, string[]> = {
   larva: ['#ffd23f', '#ff9a5a', '#ffffff'],
   tiny_fish: ['#bff6ff', '#ffffff', '#7fdcff'],
@@ -595,6 +599,23 @@ export class GameEngine {
     shimmeringScales: number;
     riverPearls: number;
   }) {
+    // Stars from another device weren't found on this trip: move the storybook's starting
+    // count up by the same amount, so the book doesn't say "found 200 stars".
+    const moreStars = Math.max(0, cloud.starsCollected - this.counts.stars);
+    const moreTreasures = Math.max(0, cloud.treasuresCollected - this.counts.treasuresTotal);
+    if (moreStars > 0 || moreTreasures > 0) {
+      this.trip.startStars += moreStars;
+      this.trip.startTreasures += moreTreasures;
+      // The saved copy too (the one Continue and the title's Storybook read).
+      const saved = loadTrip();
+      if (saved && saved.startedAt === this.trip.startedAt) {
+        saved.startStars += moreStars;
+        saved.startTreasures += moreTreasures;
+        saved.stars += moreStars;
+        saved.treasures += moreTreasures;
+        saveTrip(saved);
+      }
+    }
     this.counts = {
       totalPoints: Math.max(this.counts.totalPoints, cloud.totalPoints),
       stars: Math.max(this.counts.stars, cloud.starsCollected),
@@ -678,7 +699,16 @@ export class GameEngine {
 
   /** Title shortcut: go straight to free swimming in the Grand Lake with the family. */
   public startLakeSwim() {
+    // Lake play adds to the last story (if it's recent) instead of starting an empty one, so
+    // the river story isn't lost. With no recent story, it's a lake visit of its own.
+    const last = loadTrip();
     this.startGame(CHAPTERS.length - 1);
+    if (last && tripHasStory(last) && Date.now() - last.startedAt < TRIP_KEEP_MS) {
+      this.trip = last;
+    } else {
+      this.trip.atLake = true;
+    }
+    this.saveTripNow();
     this.playerDistance = 2470;
     this.playerLateral = 0;
     this.playerDepth = -1.6;
@@ -701,12 +731,14 @@ export class GameEngine {
     // Continuing the same journey: keep writing the same story.
     const story = loadTrip();
     this.startGame(0);
-    if (story && !story.reachedLake && Date.now() - story.startedAt < 3 * 24 * 3600 * 1000) {
+    const resumed = !!story && !story.reachedLake && !story.atLake && Date.now() - story.startedAt < TRIP_KEEP_MS;
+    if (resumed) {
       this.trip = story;
       this.saveTripNow();
     }
     if (saved !== null) {
       this.playerDistance = Math.max(15, saved - 10);
+      if (!resumed) this.trip.startDistance = this.playerDistance;
       this.updateChapter(true);
       this.callbacks.onTipMessage('Welcome back! Keep swimming to the Grand Lake!');
     }
@@ -744,6 +776,7 @@ export class GameEngine {
     } else {
       this.playerDistance = 15;
     }
+    this.trip.startDistance = this.playerDistance;
 
     this.playerLateral = 0;
     this.playerDepth = -2.0;
@@ -813,7 +846,12 @@ export class GameEngine {
   public triggerSonarPulse() {
     if (this.gameState !== 'playing') return;
     this.tryMeetNearbyFriend();
-    if (this.hideSeek.active) {
+    if (this.inCave) {
+      // In the cave, Sniff finds crystals (Pip and the pearls are out in the lake).
+      if (this.cave.showDirection(this.player.group.position, (at) => this.sparkles.burst(at, CAVE_SNIFF_COLORS, 3, 0.35, 0.2))) {
+        narrator.say('A crystal is that way!', true);
+      }
+    } else if (this.hideSeek.active) {
       this.hideSeek.showDirection(this.player.group.position, this.sparkles);
       narrator.say('Pip is that way!', true);
     } else if (this.isFreeSwim && this.dive.foundCount < this.dive.total) {
@@ -1100,6 +1138,9 @@ export class GameEngine {
   private enterCave() {
     this.inCave = true;
     this.isJumping = false;
+    // Pip's hide-and-seek is a lake game: stop it, or "Find Pip!" stays up inside the cave.
+    if (this.hideSeek.active) this.hideSeek.stop(this.riverWorld);
+    this.hideSeekInviteTimer = 0;
     const { pos, heading } = this.cave.enter();
     this.player.group.position.copy(pos);
     this.player.group.rotation.set(0, heading, 0);
@@ -1166,7 +1207,8 @@ export class GameEngine {
     for (const ev of events) {
       if (ev.type === 'crystal') {
         this.addMoment('crystal');
-        this.rewardStars(1, 5);
+        // Stars for the first three cave visits a day, like the other lake games.
+        this.rewardStars(dailyAllowance('crystal', CAVE_CRYSTALS * 3) ? 1 : 0, 5);
         sound.playCollectTreasure();
         this.sparkles.burst(ev.at, ['#5ef2ff', '#ff7ad9', '#ffffff', '#ffd76a'], 30, 3.5, 1.6);
         this.callbacks.onCaveChange({ found: ev.found, total: ev.total });
@@ -1174,9 +1216,10 @@ export class GameEngine {
         if (ev.found < ev.total) narrator.say(`${ev.found}!`, false);
         this.applyCaveLook();
       } else if (ev.type === 'allCrystals') {
-        this.rewardStars(10, 50);
+        const stars = dailyAllowance('cavelit', 3) ? 10 : 0;
+        this.rewardStars(stars, 50);
         sound.playMissionComplete();
-        this.callbacks.onTreasurePopup('You lit up the whole cave!', 10, '💎');
+        this.callbacks.onTreasurePopup('You lit up the whole cave!', stars, '💎');
         narrator.say(cheer('You lit up the whole cave'), true);
         this.sparkles.burst(p, RAINBOW_COLORS, 60, 6, 2);
       } else if (ev.type === 'rideStart') {
@@ -1197,8 +1240,9 @@ export class GameEngine {
           this.callbacks.onTreasurePopup('You found the Crystal Crown! Try it on in Dress up.', 0, '💎');
           narrator.say(cheer('You found the Crystal Crown'), true);
         } else {
-          this.rewardStars(15, 60);
-          this.callbacks.onTreasurePopup('Hidden treasure!', 15, '🎁');
+          const stars = dailyAllowance('cavechest', 3) ? 15 : 0;
+          this.rewardStars(stars, 60);
+          this.callbacks.onTreasurePopup('Hidden treasure!', stars, '🎁');
           narrator.say(cheer('Hidden treasure'), true);
         }
       } else if (ev.type === 'exit') {
@@ -2154,7 +2198,15 @@ export class GameEngine {
     // Ghost race near the start of the river (never at the same time as the dolphin race).
     const g = this.isFreeSwim
       ? { event: null, progress: null }
-      : this.ghostRace.update(dt, prevDistance, this.playerDistance, this.playerLateral, this.playerDepth, this.player.group);
+      : this.ghostRace.update(
+          dt,
+          prevDistance,
+          this.playerDistance,
+          this.playerLateral,
+          this.playerDepth,
+          this.player.group,
+          this.currentSpeeds().boost
+        );
     if (g.event?.type === 'start') {
       sound.playMilestone();
       const msg = g.event.rival

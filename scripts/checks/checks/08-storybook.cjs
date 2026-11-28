@@ -4,7 +4,7 @@ const { assert, assertNoPageErrors, openGame } = require('../lib.cjs');
 // shows the victory panel, and after a reload the title screen's Storybook button opens it.
 module.exports = {
   name: 'storybook',
-  about: 'Storybook pages match the swim; it opens at the lake and from the title screen.',
+  about: 'Storybook pages match the swim; opens at the lake and from the title; keys, cloud stars, lake shortcut, Pick a place.',
   async run({ browser, baseUrl, note, track }) {
     const { page, errors } = await openGame(browser, baseUrl, { viewport: { width: 420, height: 800 } });
     track(page);
@@ -20,7 +20,7 @@ module.exports = {
       e.addMoment('ghostWin');
       e.counts.stars += 23;
       e.counts.treasuresTotal += 4;
-      e.trip.distance = 2370;
+      e.trip.distance = 2385; // the swim began at 15, so 2370 meters were swum
       e.triggerGrandLakeCelebration();
     });
     await page.waitForSelector('text=River Adventure', { timeout: 20000 });
@@ -50,7 +50,51 @@ module.exports = {
     await page.waitForFunction(() => !!window.__whiskers, null, { timeout: 90000 });
     await page.click('button:has-text("Storybook")', { timeout: 30000 });
     await page.waitForSelector('text=River Adventure', { timeout: 10000 });
-    note(`${pages.length} pages; victory panel after closing; title screen button works`);
+    // Keys don't start the game behind the open book; Escape closes it.
+    await page.keyboard.press('Space');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(300);
+    const stateWithBook = await page.evaluate(() => window.__whiskers.gameState);
+    assert(stateWithBook === 'title', `Space/Enter with the book open started the game (${stateWithBook})`);
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => !document.body.innerText.includes('River Adventure'), null, { timeout: 5000 });
+    const later = await page.evaluate(() => {
+      const e = window.__whiskers;
+      const before = e.getTrip();
+      // Stars synced from another device weren't found on this trip.
+      const c = e.counts;
+      e.applyCloudProgress({
+        totalPoints: c.totalPoints,
+        starsCollected: c.stars + 100,
+        treasuresCollected: c.treasuresTotal,
+        foodEaten: c.foodEaten,
+        furthestDistance: 0,
+        highestChapter: 0,
+        smoothStones: c.smoothStones,
+        lostTrinkets: c.lostTrinkets,
+        shimmeringScales: c.shimmeringScales,
+        riverPearls: c.riverPearls,
+      });
+      const synced = e.getTrip();
+      // The title's Grand Lake shortcut adds to this story instead of starting an empty one.
+      e.startLakeSwim();
+      const lake = e.getTrip();
+      // "Pick a place": only the meters actually swum count.
+      e.startGame(4);
+      const startAt = e.playerDistance;
+      e.trip.distance = startAt + 55;
+      const picked = e.getTrip();
+      return {
+        foundBefore: before.stars - before.startStars,
+        foundAfter: synced.stars - synced.startStars,
+        lakeKept: lake.startedAt === before.startedAt && lake.distance === 2385,
+        pickedMeters: Math.round(picked.distance - picked.startDistance),
+      };
+    });
+    assert(later.foundAfter === later.foundBefore, `cloud stars counted as found on the trip (${later.foundBefore} -> ${later.foundAfter})`);
+    assert(later.lakeKept, 'the Grand Lake shortcut replaced the last story');
+    assert(later.pickedMeters === 55, `a Pick-a-place swim of 55 meters counted ${later.pickedMeters}`);
+    note(`${pages.length} pages; victory panel after closing; title button works; keys blocked; cloud stars, lake shortcut and Pick a place counted right`);
     assertNoPageErrors(errors);
     await page.close();
   },

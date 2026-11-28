@@ -122,6 +122,8 @@ interface StreamEntry {
   radiusSq: number;
   hideSq: number;
   attached: boolean;
+  /** Has been in the scene while it was drawn, so its shape is already on the graphics card. */
+  shown: boolean;
 }
 
 /**
@@ -129,12 +131,15 @@ interface StreamEntry {
  * per frame (no matrix updates, no culling tests, no draw calls). Objects are expected to be
  * direct children of groups sitting at the world origin, so their position is world space.
  */
+const JUMP_SQ = 40 * 40;
+
 export class DistanceStreamer {
   private entries: StreamEntry[] = [];
   private timer = 0;
   /** Objects that have never been shown yet wait here and come in one per frame. */
   private firstTimers: StreamEntry[] = [];
-  private shown = new WeakSet<THREE.Object3D>();
+  /** Where the last update looked from, to notice a jump (Start over, Pick a place, the lake). */
+  private lastFocus = new THREE.Vector3(Infinity, 0, 0);
 
   /** Register every current child of `parent`. */
   public addChildrenOf(parent: THREE.Object3D, radius: number) {
@@ -145,12 +150,12 @@ export class DistanceStreamer {
     if (e.attached) return;
     e.parent.add(e.obj);
     e.attached = true;
-    this.shown.add(e.obj);
+    e.shown = true;
   }
 
   public add(obj: THREE.Object3D, parent: THREE.Object3D, radius: number) {
     const hide = radius + 15;
-    this.entries.push({ obj, parent, radiusSq: radius * radius, hideSq: hide * hide, attached: obj.parent === parent });
+    this.entries.push({ obj, parent, radiusSq: radius * radius, hideSq: hide * hide, attached: obj.parent === parent, shown: false });
   }
 
   /** Call every frame; it only does work a few times a second (or immediately when forced). */
@@ -160,19 +165,28 @@ export class DistanceStreamer {
     // which made the picture hiccup.
     const next = this.firstTimers.shift();
     if (next) this.attach(next);
+    // A jump to a new place (Start over, Pick a place, the lake): look around right away, and
+    // drop first-timers still waiting from the old place.
+    const jumped = this.lastFocus.distanceToSquared(focus) > JUMP_SQ;
+    if (jumped) this.firstTimers.length = 0;
+    this.lastFocus.copy(focus);
     this.timer -= dt;
-    if (this.timer > 0 && !force) return;
+    if (this.timer > 0 && !force && !jumped) return;
     this.timer = 0.25;
     for (const e of this.entries) {
       const dx = e.obj.position.x - focus.x;
       const dz = e.obj.position.z - focus.z;
       const d = dx * dx + dz * dz;
       if (!e.attached && d < e.radiusSq) {
-        if (force || this.shown.has(e.obj)) this.attach(e);
+        if (force || e.shown) this.attach(e);
         else if (!this.firstTimers.includes(e)) this.firstTimers.push(e);
       } else if (e.attached && d > e.hideSq) {
         e.parent.remove(e.obj);
         e.attached = false;
+      } else if (e.attached) {
+        // Staying in the scene (like the river start behind the title screen), so it gets
+        // drawn: next time it can come straight back instead of waiting in line.
+        e.shown = true;
       }
     }
   }

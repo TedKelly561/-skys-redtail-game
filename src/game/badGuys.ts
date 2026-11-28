@@ -270,11 +270,20 @@ export class BadGuys {
     });
   }
 
+  /** Eyes closed, mouth shut, back to sleep. */
+  private fallAsleep(c: Caiman) {
+    c.state = 'sleep';
+    c.jaw.rotation.x = 0;
+    c.lids.forEach((l) => (l.visible = true));
+    c.pupils.forEach((p) => (p.visible = false));
+  }
+
   public reset() {
     for (const c of this.caimans) {
-      c.state = 'sleep';
+      this.fallAsleep(c);
       c.timer = 0;
       c.warned = false;
+      c.willStalk = false;
       c.group.position.copy(c.home);
       c.group.rotation.y = c.homeRot;
     }
@@ -411,6 +420,8 @@ export class BadGuys {
         // Awake and grumpy for a few seconds, then back to sleep.
         c.timer += dt;
         c.tail.rotation.y = Math.sin(c.phase * 2) * 0.2;
+        // Close the mouth gently (it can still be open from a chase).
+        c.jaw.rotation.x *= Math.max(0, 1 - dt * 4);
         // After a lunge, paddle slowly back to its sleeping spot.
         if (c.timer > 1) {
           const k = Math.min(1, dt * 0.8);
@@ -418,11 +429,7 @@ export class BadGuys {
           g.position.z += (c.home.z - g.position.z) * k;
           g.rotation.y += Math.atan2(Math.sin(c.homeRot - g.rotation.y), Math.cos(c.homeRot - g.rotation.y)) * k;
         }
-        if (c.timer > 4 && near > 6) {
-          c.state = 'sleep';
-          c.lids.forEach((l) => (l.visible = true));
-          c.pupils.forEach((p) => (p.visible = false));
-        }
+        if (c.timer > 4 && near > 6) this.fallAsleep(c);
       }
     }
 

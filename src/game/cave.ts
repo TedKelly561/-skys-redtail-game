@@ -13,6 +13,8 @@ import { mergeStaticMeshes } from './perf';
  * The cave is built far away from the river (inside a closed rock dome), so nothing else shows.
  */
 export const CAVE_ENTRANCE_DIST = 2610;
+/** Sparkly crystals to find in the cave. */
+export const CAVE_CRYSTALS = 12;
 export const CAVE_ENTRANCE_LATERAL = 10;
 const ORIGIN = new THREE.Vector3(3000, -60, 3000);
 /** Swimmable space: an ellipsoid with these half sizes (meters). */
@@ -36,6 +38,7 @@ interface Crystal {
 }
 
 const _v = new THREE.Vector3();
+const _trail = new THREE.Vector3();
 const _w = new THREE.Vector3();
 
 function rng(seed: number) {
@@ -193,8 +196,8 @@ export class LakeCave {
   private buildCrystals() {
     const r = rng(1234);
     const oct = this.track(new THREE.OctahedronGeometry(0.5, 0));
-    for (let i = 0; i < 12; i++) {
-      const a = (i / 12) * Math.PI * 2 + r() * 0.3;
+    for (let i = 0; i < CAVE_CRYSTALS; i++) {
+      const a = (i / CAVE_CRYSTALS) * Math.PI * 2 + r() * 0.3;
       const d = 9 + r() * (R - 12);
       const x = Math.cos(a) * d;
       const z = Math.sin(a) * d;
@@ -449,6 +452,29 @@ export class LakeCave {
   }
 
   /** Whiskers is near the entrance and down near the lake floor. */
+  /** Sniff in the cave: a short sparkle trail toward the nearest crystal not found yet. */
+  public showDirection(player: THREE.Vector3, burst: (at: THREE.Vector3) => void): boolean {
+    let best = Infinity;
+    for (const c of this.crystals) {
+      if (c.found) continue;
+      c.group.getWorldPosition(_v);
+      const d = _v.distanceToSquared(player);
+      if (d < best) {
+        best = d;
+        _trail.copy(_v);
+      }
+    }
+    if (best === Infinity) return false;
+    _trail.y += 0.8;
+    _trail.sub(player).normalize();
+    for (let k = 1; k <= 6; k++) {
+      _v.copy(player).addScaledVector(_trail, k * 1.4);
+      _v.y += 0.3;
+      burst(_v);
+    }
+    return true;
+  }
+
   public atEntrance(p: THREE.Vector3) {
     const dx = p.x - this.entrancePos.x;
     const dz = p.z - this.entrancePos.z;

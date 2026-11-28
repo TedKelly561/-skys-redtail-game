@@ -71,10 +71,10 @@ When a check fails, the run keeps the screenshots as a downloadable "check-resul
 | `lake-and-pip` | Reaching the Grand Lake opens the storybook, then the victory panel, free swim, and hide-and-seek with Pip (+5). |
 | `tricky` | Bad-guy counts per level (6/4/6 vs 9/8/10), Tricky's 1.3× swim, croc lunge, the following croc (Zoom escapes). |
 | `cats` | A bush cat's whole pounce routine, on Normal and for a Tricky-only cat. |
-| `ghost-race` | The first run is saved, the other player races its ghost (slower loses, faster wins), and the live race bar shows. |
-| `storybook` | The book's pages match the swim, and it opens at the lake and from the title screen. |
-| `cave` | Enter the cave, find all 12 crystals, ride Grandpa Turtle, get the Crystal Crown, leave. |
-| `player-backup` | The cousin's backup restores on a fresh device, removed players stay removed, bad data is ignored. |
+| `ghost-race` | The first run is saved, the other player races its ghost (slower loses, faster wins, fair on Tricky), and the live race bar shows. |
+| `storybook` | The book's pages match the swim, it opens at the lake and from the title, keys don't start the game behind it, and cloud stars, the lake shortcut and Pick a place are counted right. |
+| `cave` | Enter the cave (Pip's hide-and-seek stops, Sniff points to crystals), find all 12 crystals, ride Grandpa Turtle, get the Crystal Crown, leave. |
+| `player-backup` | The cousin's backup restores on a fresh device, isn't added twice where she already is, removed players stay removed, bad data is ignored. |
 | `memory-budget` | The river's 3D shapes stay under 230 MB (4 MB per step), and the lake's lily pads load early. |
 
 ## How they work
