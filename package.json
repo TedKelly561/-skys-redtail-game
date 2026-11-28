@@ -10,7 +10,8 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "check": "node scripts/checks/run.cjs",
-    "guard": "node scripts/checks/guard.cjs"
+    "guard": "node scripts/checks/guard.cjs",
+    "ids": "node scripts/checks/unique-ids.cjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
